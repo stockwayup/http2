@@ -4,27 +4,22 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 
-use deadpool_lapin::{Config, Pool, Runtime};
+use deadpool_lapin::Manager;
 use env_logger::{Builder, Target};
-use futures::join;
+use futures::future;
+use lapin::ConnectionProperties;
 use log::LevelFilter;
+use tokio::sync::oneshot;
 use warp::{Filter, route};
+
+use crate::publisher::Publisher;
 
 mod handlers;
 mod responses;
 mod events;
+mod publisher;
 
-pub struct Publisher<'a> {
-    pool: &'a Pool,
-}
-
-impl<'a> Publisher<'a> {
-    pub fn new(pool: &Pool) -> Publisher {
-        Publisher {
-            pool,
-        }
-    }
-}
+type Connection = deadpool::managed::Object<deadpool_lapin::Manager>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,22 +31,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     const BODY_SIZE: u64 = 1024 * 250;
 
-    let mut cfg = Config::default();
+    let addr = std::env::var("AMQP_ADDR").unwrap_or_else(|_| "amqp://user:pass@127.0.0.1:5672/%2f".into());
 
-    cfg.url = Some("amqp://user:pass@127.0.0.1:5672/%2f".into());
+    let manager = Manager::new(addr, ConnectionProperties::default());
 
-    let pool = cfg.create_pool(Some(Runtime::Tokio1))?;
+    let pool = deadpool::managed::Pool::builder(manager)
+        .max_size(10)
+        .build()
+        .expect("can't create pool");
 
-    let publ = Publisher::new(&pool);
+    let pub_svc = Publisher::new(pool.clone());
 
     let filters = warp::any().
         and(route()).
         and(warp::header::optional::<String>("authorization")).
         and(warp::query::<HashMap<String, String>>()).
-        and(with_rmq(pool.clone()));
+        and(with_publisher(&pub_svc))
+        ;
 
-    let body_filters = filters.clone().
-        and(warp::body::bytes());
+    let body_filters = filters.clone().and(warp::body::bytes());
 
     let get = warp::get().
         and(
@@ -67,8 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     and(with_param("uid".to_string())).
                     and_then(handlers::with_param)).
                 or(warp::path!("api" / "v1" / "users"/ u64 / "dividends").
-                    and(filters.clone()).
-                    and(with_path_name("/api/v1/users/{uid}/dividends".to_string())).
+                    and(filters.clone()).and(with_path_name("/api/v1/users/{uid}/dividends".to_string())).
                     and(with_param("uid".to_string())).
                     and_then(handlers::with_param)).
                 or(warp::path!("api" / "v1" / "users"/ u64 / "day-prices").
@@ -301,15 +298,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let routes = get.or(post).or(patch).or(delete);
 
-    let _ = join!(
-        warp::serve(routes).run(([127, 0, 0, 1], 3030)),
-    );
+    let (tx, rx) = oneshot::channel();
+
+    let (addr, server) = warp::serve(routes)
+        .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async {
+            rx.await.ok();
+        });
+
+    // Spawn the server into a runtime
+    tokio::task::spawn(server);
+
+    // Later, start the shutdown...
+    let _ = tx.send(());
+
+    pool.close();
 
     Ok(())
 }
 
-fn with_rmq(pool: Pool) -> impl Filter<Extract=(Pool, ), Error=Infallible> + Clone {
-    warp::any().map(move || pool.clone())
+fn with_publisher(publisher: &Publisher) -> impl Filter<Extract=(&Publisher, ), Error=Infallible> + Clone {
+    warp::any().map(move || publisher)
 }
 
 fn with_path_name(name: String) -> impl Filter<Extract=(String, ), Error=Infallible> + Clone {
