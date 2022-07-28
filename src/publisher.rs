@@ -80,6 +80,10 @@ impl<'a> Publisher {
         Ok(())
     }
 
+    pub fn close(&self) {
+        self.pool.close();
+    }
+
     async fn get_rmq_con(&self, pool: &Pool) -> RMQResult<Connection> {
         let connection = pool.get().await?;
 

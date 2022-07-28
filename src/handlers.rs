@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::result::Result as StdResult;
+use std::sync::Arc;
 
 use bytes::Buf;
 use log::error;
 use serde::Serialize;
+use tokio::sync::Mutex;
 use warp::{Rejection, Reply};
 use warp::filters::route::Info;
 use warp::http::{header::CONTENT_TYPE, HeaderValue};
@@ -15,16 +17,6 @@ use super::events::HttpReq;
 use super::responses::{Attributes, Statuses, StatusesData};
 
 type WebResult<T> = StdResult<T, Rejection>;
-
-pub struct Handler<'a> {
-    publisher: &'a Publisher,
-}
-
-impl<'a> Handler<'a> {
-    pub fn new(publisher: &'a Publisher) -> Self {
-        Self { publisher }
-    }
-}
 
 pub async fn health_check() -> Result<impl warp::Reply, Infallible> {
     let statuses = Statuses {
@@ -48,7 +40,7 @@ pub async fn with_body<'a>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
 ) -> WebResult<impl Reply> {
@@ -58,7 +50,9 @@ pub async fn with_body<'a>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -72,7 +66,7 @@ pub async fn with_body_and_param<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
     param_name: String,
@@ -85,7 +79,9 @@ pub async fn with_body_and_param<'a, T>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -100,7 +96,7 @@ pub async fn with_body_and_2_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
     param1_name: String,
@@ -115,7 +111,9 @@ pub async fn with_body_and_2_params<'a, T>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -131,7 +129,7 @@ pub async fn with_body_and_3_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
     param1_name: String,
@@ -148,7 +146,9 @@ pub async fn with_body_and_3_params<'a, T>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -161,7 +161,7 @@ pub async fn handle<'a>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     route_name: String,
 ) -> WebResult<impl Reply> {
     let user_values: HashMap<String, String> = HashMap::new();
@@ -170,7 +170,9 @@ pub async fn handle<'a>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -184,7 +186,7 @@ pub async fn with_param<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     route_name: String,
     param_name: String,
 ) -> WebResult<impl Reply> where T: Serialize {
@@ -196,7 +198,9 @@ pub async fn with_param<'a, T>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -211,7 +215,7 @@ pub async fn with_2_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     route_name: String,
     param1_name: String,
     param2_name: String,
@@ -225,7 +229,9 @@ pub async fn with_2_params<'a, T>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -242,7 +248,7 @@ pub async fn with_3_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: &'a Publisher,
+    publisher: Arc<Mutex<Publisher>>,
     route_name: String,
     param1_name: String,
     param2_name: String,
@@ -258,7 +264,9 @@ pub async fn with_3_params<'a, T>(
 
     let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
 
-    publisher.publish(req).await.map_err(|e| {
+    let publ = publisher.lock().await;
+
+    publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()

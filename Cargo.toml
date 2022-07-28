@@ -19,6 +19,7 @@ deadpool-lapin = "^0.10"
 futures = "^0.3"
 thiserror = "^1"
 time = "0.3.11"
+libc = "0.2"
 
 [dependencies.uuid]
 version = "^1.1"

@@ -3,13 +3,17 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::sync::Arc;
 
 use deadpool_lapin::Manager;
 use env_logger::{Builder, Target};
-use futures::future;
 use lapin::ConnectionProperties;
+use libc::{c_int, SIGINT, SIGTERM};
+use log::{error, info};
 use log::LevelFilter;
-use tokio::sync::oneshot;
+use tokio::signal::unix::SignalKind;
+use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc::Receiver;
 use warp::{Filter, route};
 
 use crate::publisher::Publisher;
@@ -18,8 +22,6 @@ mod handlers;
 mod responses;
 mod events;
 mod publisher;
-
-type Connection = deadpool::managed::Object<deadpool_lapin::Manager>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,13 +42,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .expect("can't create pool");
 
-    let pub_svc = Publisher::new(pool.clone());
+    let pub_svc = Arc::new(Mutex::new(Publisher::new(pool)));
 
     let filters = warp::any().
         and(route()).
         and(warp::header::optional::<String>("authorization")).
         and(warp::query::<HashMap<String, String>>()).
-        and(with_publisher(&pub_svc))
+        and(with_publisher(Arc::clone(&pub_svc)))
         ;
 
     let body_filters = filters.clone().and(warp::body::bytes());
@@ -298,26 +300,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let routes = get.or(post).or(patch).or(delete);
 
-    let (tx, rx) = oneshot::channel();
+    let mut rx = listen_signals();
 
-    let (addr, server) = warp::serve(routes)
-        .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async {
-            rx.await.ok();
+    let (_addr, server) = warp::serve(routes)
+        .bind_with_graceful_shutdown(([127, 0, 0, 1], 3030), async move {
+            info!("waiting for signal");
+            rx.recv().await;
+            info!("shutdown signal received");
         });
 
-    // Spawn the server into a runtime
-    tokio::task::spawn(server);
+    match tokio::join!(tokio::task::spawn(server)).0 {
+        Ok(()) => info!("serving"),
+        Err(e) => error!("Thread join error {}", e),
+    }
 
-    // Later, start the shutdown...
-    let _ = tx.send(());
+    let pub_svc = pub_svc.lock().await;
 
-    pool.close();
+    pub_svc.close();
 
     Ok(())
 }
 
-fn with_publisher(publisher: &Publisher) -> impl Filter<Extract=(&Publisher, ), Error=Infallible> + Clone {
-    warp::any().map(move || publisher)
+fn listen_signals() -> Receiver<c_int> {
+    let (tx, rx) = mpsc::channel(2);
+
+    for &signum in [SIGTERM, SIGINT].iter() {
+        let tx = tx.clone();
+
+        let mut sig = tokio::signal::unix::signal(SignalKind::from_raw(signum)).unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                sig.recv().await;
+                if tx.clone().send(signum).await.is_err() {
+                    break;
+                };
+            }
+        });
+    }
+
+    rx
+}
+
+fn with_publisher(publisher: Arc<Mutex<Publisher>>) -> impl Filter<Extract=(Arc<Mutex<Publisher>>, ), Error=Infallible> + Clone {
+    warp::any().map(move || Arc::clone(&publisher))
 }
 
 fn with_path_name(name: String) -> impl Filter<Extract=(String, ), Error=Infallible> + Clone {
