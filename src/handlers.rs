@@ -6,12 +6,13 @@ use std::sync::Arc;
 use bytes::Buf;
 use log::error;
 use serde::Serialize;
-use tokio::sync::Mutex;
-use warp::{Rejection, Reply};
+use tokio::sync::RwLock;
 use warp::filters::route::Info;
 use warp::http::{header::CONTENT_TYPE, HeaderValue};
+use warp::{Rejection, Reply};
 
 use crate::publisher::Publisher;
+use crate::router::Router;
 
 use super::events::HttpReq;
 use super::responses::{Attributes, Statuses, StatusesData};
@@ -24,14 +25,17 @@ pub async fn health_check() -> Result<impl warp::Reply, Infallible> {
             id: "1".to_string(),
             r#type: "statuses".to_string(),
             attributes: Attributes {
-                name: "success".to_string()
+                name: "success".to_string(),
             },
-        }
+        },
     };
 
     let mut resp = warp::reply::json(&statuses).into_response();
 
-    resp.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/vnd.api+json"));
+    resp.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/vnd.api+json"),
+    );
 
     Ok(resp)
 }
@@ -40,7 +44,7 @@ pub async fn with_body<'a>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
 ) -> WebResult<impl Reply> {
@@ -48,11 +52,18 @@ pub async fn with_body<'a>(
 
     let b = &body.chunk();
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
-    publ.publish(req).await.map_err(|e| {
+    let _id = publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
@@ -66,28 +77,49 @@ pub async fn with_body_and_param<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     body: bytes::Bytes,
+    router: Arc<RwLock<Router>>,
     route_name: String,
     param_name: String,
-) -> WebResult<impl Reply> where T: Serialize {
+) -> WebResult<impl Reply>
+where
+    T: Serialize,
+{
     let mut user_values = HashMap::new();
 
     user_values.insert(param_name, param_value);
 
     let b = &body.chunk();
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
-    publ.publish(req).await.map_err(|e| {
+    let id = publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
     })?;
 
-    Ok(warp::reply::html("here will be an answer"))
+    let mut ch = router.read().await.subscribe(id.clone());
+
+    tokio::select! {
+        body = ch.recv() => {
+            router.read().await.unsubscribe(id);
+
+            Ok(warp::reply::html(body.unwrap()))
+        }
+    }
+
+    // todo: timeout
 }
 
 pub async fn with_body_and_2_params<'a, T>(
@@ -96,12 +128,15 @@ pub async fn with_body_and_2_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
     param1_name: String,
     param2_name: String,
-) -> WebResult<impl Reply> where T: Serialize {
+) -> WebResult<impl Reply>
+where
+    T: Serialize,
+{
     let mut user_values = HashMap::new();
 
     user_values.insert(param1_name, param1_value);
@@ -109,9 +144,16 @@ pub async fn with_body_and_2_params<'a, T>(
 
     let b = &body.chunk();
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
     publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
@@ -129,13 +171,16 @@ pub async fn with_body_and_3_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     body: bytes::Bytes,
     route_name: String,
     param1_name: String,
     param2_name: String,
     param3_name: String,
-) -> WebResult<impl Reply> where T: Serialize {
+) -> WebResult<impl Reply>
+where
+    T: Serialize,
+{
     let mut user_values = HashMap::new();
 
     user_values.insert(param1_name, param1_value);
@@ -144,9 +189,16 @@ pub async fn with_body_and_3_params<'a, T>(
 
     let b = &body.chunk();
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
     publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
@@ -161,16 +213,23 @@ pub async fn handle<'a>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     route_name: String,
 ) -> WebResult<impl Reply> {
     let user_values: HashMap<String, String> = HashMap::new();
 
     let b: [u8; 0] = [];
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        &b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
     publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
@@ -186,19 +245,29 @@ pub async fn with_param<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     route_name: String,
     param_name: String,
-) -> WebResult<impl Reply> where T: Serialize {
+) -> WebResult<impl Reply>
+where
+    T: Serialize,
+{
     let mut user_values = HashMap::new();
 
     user_values.insert(param_name, param_value);
 
     let b: [u8; 0] = [];
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        &b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
     publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
@@ -215,11 +284,14 @@ pub async fn with_2_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     route_name: String,
     param1_name: String,
     param2_name: String,
-) -> WebResult<impl Reply> where T: Serialize {
+) -> WebResult<impl Reply>
+where
+    T: Serialize,
+{
     let mut user_values = HashMap::new();
 
     user_values.insert(param1_name, param1_value);
@@ -227,9 +299,16 @@ pub async fn with_2_params<'a, T>(
 
     let b: [u8; 0] = [];
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        &b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
     publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);
@@ -240,7 +319,6 @@ pub async fn with_2_params<'a, T>(
     Ok(warp::reply::html("here will be an answer"))
 }
 
-
 pub async fn with_3_params<'a, T>(
     param1_value: T,
     param2_value: T,
@@ -248,12 +326,15 @@ pub async fn with_3_params<'a, T>(
     route: Info,
     authorization: Option<String>,
     query_args: HashMap<String, String>,
-    publisher: Arc<Mutex<Publisher>>,
+    publisher: Arc<RwLock<Publisher>>,
     route_name: String,
     param1_name: String,
     param2_name: String,
     param3_name: String,
-) -> WebResult<impl Reply> where T: Serialize {
+) -> WebResult<impl Reply>
+where
+    T: Serialize,
+{
     let mut user_values = HashMap::new();
 
     user_values.insert(param1_name, param1_value);
@@ -262,9 +343,16 @@ pub async fn with_3_params<'a, T>(
 
     let b: [u8; 0] = [];
 
-    let req = HttpReq::new(&route, route_name, authorization, user_values, query_args, &b);
+    let req = HttpReq::new(
+        &route,
+        route_name,
+        authorization,
+        user_values,
+        query_args,
+        &b,
+    );
 
-    let publ = publisher.lock().await;
+    let publ = publisher.read().await;
 
     publ.publish(req).await.map_err(|e| {
         error!("can't connect to rmq, {}", e);

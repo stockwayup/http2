@@ -1,11 +1,11 @@
 use std::ops::Add;
-use std::result::Result as StdResult;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use deadpool_lapin::{Pool, PoolError};
 use lapin::options::BasicPublishOptions;
 use lapin::protocol::basic::AMQPProperties;
 use lapin::types::{ShortShortUInt, ShortString};
+use lapin::Channel;
 use log::error;
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -13,59 +13,51 @@ use uuid::Uuid;
 
 use crate::events::HttpReq;
 
-type Connection = deadpool::managed::Object<deadpool_lapin::Manager>;
-type RMQResult<T> = StdResult<T, PoolError>;
+const QUEUE: &str = "http.requests";
 
 pub struct Publisher {
-    pub pool: Pool,
+    rmq_ch: Channel,
 }
 
-impl<'a> Publisher {
-    pub fn new(pool: Pool) -> Self {
-        Self {
-            pool,
-        }
+impl Publisher {
+    pub fn new(ch: Channel) -> Self {
+        Self { rmq_ch: ch }
     }
 
-    pub async fn publish<'b, T: serde::Serialize>(&self, req: HttpReq<'b, T>) -> Result<(), Box<dyn std::error::Error>> {
-        let rmq_con = self.get_rmq_con(&self.pool).await.map_err(|e| {
-            error!("can't connect to rmq, {}", e);
-
-            e
-        })?;
-
-        let channel = rmq_con.create_channel().await.map_err(|e| {
-            error!("can't create channel, {}", e);
-
-            e
-        })?;
-
+    pub async fn publish<'b, T: serde::Serialize>(
+        &self,
+        req: HttpReq<'b, T>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let mut buf = Vec::new();
 
         let mut se = Serializer::new(&mut buf).with_struct_map();
 
         req.serialize(&mut se).unwrap();
 
-        use std::time::{SystemTime, UNIX_EPOCH};
-
         let start = SystemTime::now();
         let since_the_epoch = start
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
 
-        let expiration = since_the_epoch.add(Duration::from_secs(120)).as_secs().to_string();
+        let expiration = since_the_epoch
+            .add(Duration::from_secs(120))
+            .as_secs()
+            .to_string();
 
-        let props = AMQPProperties::default().
-            with_content_type(ShortString::from("application/octet-stream")).
-            with_message_id(ShortString::from(Uuid::new_v4().to_string())).
-            with_delivery_mode(ShortShortUInt::from(1)).
-            with_expiration(ShortString::from(expiration))
-            ;
+        let id = Uuid::new_v4();
 
-        channel
+        let props = AMQPProperties::default()
+            .with_content_type(ShortString::from("application/octet-stream"))
+            .with_message_id(ShortString::from(id.to_string()))
+            .with_delivery_mode(ShortShortUInt::from(1))
+            .with_expiration(ShortString::from(expiration));
+
+        self.rmq_ch
+            // .as_ref()
+            // .unwrap()
             .basic_publish(
                 "",
-                "http.requests",
+                QUEUE,
                 BasicPublishOptions::default(),
                 buf.as_slice(),
                 props,
@@ -77,16 +69,6 @@ impl<'a> Publisher {
                 e
             })?;
 
-        Ok(())
-    }
-
-    pub fn close(&self) {
-        self.pool.close();
-    }
-
-    async fn get_rmq_con(&self, pool: &Pool) -> RMQResult<Connection> {
-        let connection = pool.get().await?;
-
-        Ok(connection)
+        Ok(id.to_string())
     }
 }

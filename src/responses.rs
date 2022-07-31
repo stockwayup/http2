@@ -16,4 +16,3 @@ pub struct StatusesData {
 pub struct Attributes {
     pub name: String,
 }
-
