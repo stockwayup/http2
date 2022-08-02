@@ -45,21 +45,18 @@ impl Rmq {
         )
         .await?;
 
-        ch
-            // .as_ref()
-            // .unwrap()
-            .queue_declare(
-                RESP_QUEUE,
-                QueueDeclareOptions {
-                    passive: false,
-                    durable: true,
-                    exclusive: false,
-                    auto_delete: false,
-                    nowait: false,
-                },
-                FieldTable::default(),
-            )
-            .await?;
+        ch.queue_declare(
+            RESP_QUEUE,
+            QueueDeclareOptions {
+                passive: false,
+                durable: true,
+                exclusive: false,
+                auto_delete: false,
+                nowait: false,
+            },
+            FieldTable::default(),
+        )
+        .await?;
 
         Ok(())
     }

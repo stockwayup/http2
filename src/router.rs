@@ -1,64 +1,93 @@
 use std::collections::HashMap;
 
 use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::{broadcast, RwLock};
 
 pub struct Router {
-    subscribers: HashMap<String, Sender<Vec<u8>>>,
-    sub_sender: Sender<Sub>,
-    sub_receiver: Receiver<Sub>,
-    unsub_sender: Sender<String>,
-    unsub_receiver: Receiver<String>,
-    pub_sender: Sender<Event>,
-    pub_receiver: Receiver<Event>,
+    state: State,
 }
 
-#[derive(Debug)]
+struct State {
+    subscribers: RwLock<HashMap<String, Sender<Vec<u8>>>>,
+    sub_ch: broadcast::Sender<Sub>,
+    unsub_ch: broadcast::Sender<String>,
+    pub_ch: broadcast::Sender<Event>,
+}
+
+impl State {
+    pub fn new() -> Self {
+        let (sub_tx, _) = broadcast::channel(128);
+        let (unsub_tx, _) = broadcast::channel(128);
+        let (pub_tx, _) = broadcast::channel(128);
+
+        Self {
+            subscribers: RwLock::new(Default::default()),
+            sub_ch: sub_tx,
+            unsub_ch: unsub_tx,
+            pub_ch: pub_tx,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct Sub {
     id: String,
     sender: Sender<Vec<u8>>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Event {
     id: String,
     data: Vec<u8>,
 }
 
+impl Event {
+    pub fn new(id: String, data: Vec<u8>) -> Self {
+        Self { id, data }
+    }
+}
+
 impl Router {
     pub fn new() -> Self {
-        let (sub_tx, sub_rx) = mpsc::channel(128);
-        let (unsub_tx, unsub_rx) = mpsc::channel(128);
-        let (pub_tx, pub_rx) = mpsc::channel(128);
-
         Self {
-            subscribers: Default::default(),
-            sub_sender: sub_tx,
-            sub_receiver: sub_rx,
-            unsub_sender: unsub_tx,
-            unsub_receiver: unsub_rx,
-            pub_sender: pub_tx,
-            pub_receiver: pub_rx,
+            state: State::new(),
         }
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&self) {
+        let mut sub_receiver = self.state.sub_ch.subscribe();
+        let mut unsub_receiver = self.state.unsub_ch.subscribe();
+        let mut pub_receiver = self.state.pub_ch.subscribe();
+
         loop {
             tokio::select! {
-                sub = self.sub_receiver.recv() => {
+                sub = sub_receiver.recv() => {
                     let s = sub.unwrap();
 
-                    self.subscribers.insert(s.id.to_string(), s.sender);
+                    let mut map = self.state.subscribers.write().await;
+
+                    map.insert(s.id.to_string(), s.sender);
+
+                    drop(map)
                 }
-                id = self.unsub_receiver.recv() => {
-                    self.subscribers.remove(&id.unwrap());
+                id = unsub_receiver.recv() => {
+                    let mut map = self.state.subscribers.write().await;
+
+                    map.remove(&id.unwrap());
+
+                    drop(map)
                 }
-                event = self.pub_receiver.recv() => {
+                event = pub_receiver.recv() => {
                     let e = event.unwrap();
 
-                    match self.subscribers.get(&e.id) {
-                        Some(sender) => sender.blocking_send(e.data),
+                    let map = self.state.subscribers.write().await;
+
+                    match map.get(&e.id) {
+                        Some(sender) => sender.send(e.data).await,
                         None => Ok(()),
                     };
+
+                    drop(map)
                 }
             }
         }
@@ -67,18 +96,16 @@ impl Router {
     pub fn subscribe(&self, id: String) -> Receiver<Vec<u8>> {
         let (tx, rx) = mpsc::channel(128);
 
-        self.sub_sender
-            .blocking_send(Sub { id, sender: tx })
-            .unwrap();
+        self.state.sub_ch.send(Sub { id, sender: tx }).unwrap();
 
         rx
     }
 
     pub fn unsubscribe(&self, id: String) {
-        self.unsub_sender.blocking_send(id).unwrap();
+        self.state.unsub_ch.send(id).unwrap();
     }
 
     pub fn publish(&self, e: Event) {
-        self.pub_sender.blocking_send(e).unwrap();
+        self.state.pub_ch.send(e).unwrap();
     }
 }

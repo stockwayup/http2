@@ -53,8 +53,6 @@ impl Publisher {
             .with_expiration(ShortString::from(expiration));
 
         self.rmq_ch
-            // .as_ref()
-            // .unwrap()
             .basic_publish(
                 "",
                 QUEUE,

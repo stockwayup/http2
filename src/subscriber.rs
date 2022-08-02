@@ -1,17 +1,23 @@
+use std::sync::Arc;
+
 use futures::StreamExt;
 use lapin::options::{BasicAckOptions, BasicConsumeOptions};
 use lapin::types::FieldTable;
 use lapin::{Channel, Error};
 
+use crate::router::Event;
+use crate::Router;
+
 const QUEUE: &str = "http.responses";
 
 pub struct Subscriber {
     rmq_ch: Channel,
+    router: Arc<Router>,
 }
 
 impl Subscriber {
-    pub fn new(ch: Channel) -> Self {
-        Self { rmq_ch: ch }
+    pub fn new(rmq_ch: Channel, router: Arc<Router>) -> Self {
+        Self { rmq_ch, router }
     }
 
     pub async fn subscribe(&self) -> Result<(), Error> {
@@ -34,9 +40,17 @@ impl Subscriber {
             if let Ok(delivery) = delivery {
                 println!("received msg: {:?}", delivery); //todo delete
 
-                delivery.ack(BasicAckOptions { multiple: false }).await?
+                delivery.ack(BasicAckOptions { multiple: false }).await?;
 
-                // todo: publish
+                self.router.publish(Event::new(
+                    delivery
+                        .properties
+                        .message_id()
+                        .clone()
+                        .unwrap()
+                        .to_string(),
+                    delivery.data,
+                ));
             }
         }
 
