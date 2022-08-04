@@ -8,7 +8,7 @@ pub struct Router {
 }
 
 struct State {
-    subscribers: RwLock<HashMap<String, Sender<Vec<u8>>>>,
+    subscribers: RwLock<HashMap<String, Sender<Event>>>,
     sub_ch: broadcast::Sender<Sub>,
     unsub_ch: broadcast::Sender<String>,
     pub_ch: broadcast::Sender<Event>,
@@ -32,18 +32,19 @@ impl State {
 #[derive(Clone, Debug)]
 struct Sub {
     id: String,
-    sender: Sender<Vec<u8>>,
+    sender: Sender<Event>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Event {
     id: String,
-    data: Vec<u8>,
+    pub data: Vec<u8>,
+    pub code: String,
 }
 
 impl Event {
-    pub fn new(id: String, data: Vec<u8>) -> Self {
-        Self { id, data }
+    pub fn new(id: String, data: Vec<u8>, code: String) -> Self {
+        Self { id, data, code }
     }
 }
 
@@ -57,7 +58,7 @@ impl Router {
     pub async fn run(&self) {
         let mut sub_receiver = self.state.sub_ch.subscribe();
         let mut unsub_receiver = self.state.unsub_ch.subscribe();
-        let mut pub_receiver = self.state.pub_ch.subscribe();
+        let mut pub_receiver: broadcast::Receiver<Event> = self.state.pub_ch.subscribe();
 
         loop {
             tokio::select! {
@@ -83,7 +84,7 @@ impl Router {
                     let map = self.state.subscribers.write().await;
 
                     match map.get(&e.id) {
-                        Some(sender) => sender.send(e.data).await,
+                        Some(sender) => sender.send(e).await,
                         None => Ok(()),
                     };
 
@@ -93,7 +94,7 @@ impl Router {
         }
     }
 
-    pub fn subscribe(&self, id: String) -> Receiver<Vec<u8>> {
+    pub fn subscribe(&self, id: String) -> Receiver<Event> {
         let (tx, rx) = mpsc::channel(128);
 
         self.state.sub_ch.send(Sub { id, sender: tx }).unwrap();

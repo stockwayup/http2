@@ -2,11 +2,11 @@ use std::ops::Add;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use kv_log_macro as log;
 use lapin::options::BasicPublishOptions;
 use lapin::protocol::basic::AMQPProperties;
 use lapin::types::{ShortShortUInt, ShortString};
 use lapin::Channel;
-use log::error;
 use rmp_serde::Serializer;
 use serde::Serialize;
 use uuid::Uuid;
@@ -62,7 +62,7 @@ impl Publisher {
             )
             .await
             .map_err(|e| {
-                error!("can't publish: {}", e);
+                log::error!(target: "app", "can't publish: {}", e);
 
                 e
             })?;

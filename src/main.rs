@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use deadpool::managed::Timeouts;
 use deadpool_lapin::{Manager, Runtime};
-use env_logger::{Builder, Target};
+use json_env_logger2::builder;
+use json_env_logger2::env_logger::Target;
 use lapin::ConnectionProperties;
 use libc::{c_int, SIGINT, SIGTERM};
 use log::LevelFilter;
-use log::{error, info};
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::{mpsc, RwLock};
@@ -32,12 +32,13 @@ mod subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = Builder::from_default_env();
+    let mut builder = builder();
 
     builder.target(Target::Stdout);
-    // builder.filter_level(LevelFilter::Debug);
-    builder.filter_level(LevelFilter::Trace);
-    builder.init();
+    builder.filter_level(LevelFilter::Debug);
+    builder.try_init().unwrap();
+
+    json_env_logger2::panic_hook();
 
     let rmq = setup_rmq().await;
 
@@ -57,16 +58,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (_addr, server) =
         warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], 8000), async move {
-            info!("waiting for signal");
+            log::info!(target: "app", "waiting for signal");
             rx.recv().await;
-            info!("shutdown signal received");
+            log::info!(target: "app", "shutdown signal received");
         });
 
     let result = tokio::try_join!(
         tokio::task::spawn(server),
         tokio::task::spawn(async move {
-            // let router = router.clone();
-
             router.run().await;
         }),
         tokio::task::spawn(async move {
@@ -75,8 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     match result {
-        Ok(_) => info!("run tasks"),
-        Err(e) => error!("thread join error {}", e),
+        Ok(_) => log::info!(target: "app", "run tasks"),
+        Err(e) => log::error!(target: "app", "thread join error {}", e),
     }
 
     rmq.close();

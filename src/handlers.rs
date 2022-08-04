@@ -4,11 +4,11 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use bytes::Buf;
-use log::error;
+use kv_log_macro as log;
 use serde::Serialize;
 use tokio::sync::RwLock;
 use warp::filters::route::Info;
-use warp::http::{header::CONTENT_TYPE, HeaderValue};
+use warp::http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use warp::{Rejection, Reply};
 
 use crate::publisher::Publisher;
@@ -329,18 +329,33 @@ where
     let publ = publisher.read().await;
 
     let id = publ.publish(req).await.map_err(|e| {
-        error!("can't connect to rmq, {}", e);
+        log::error!(target: "app", "can't connect to rmq, {}", e);
 
         warp::reject::reject()
     })?;
 
+    log::info!(target: "app", "request published", {id: id.clone().as_str()});
+
     let mut ch = router.subscribe(id.clone());
 
     tokio::select! {
-        body = ch.recv() => {
-            router.unsubscribe(id);
+        event = ch.recv() => {
+            router.unsubscribe(id.clone());
 
-            Ok(warp::reply::html(body.unwrap()))
+            log::info!(target: "app", "response received", {id: id.clone().as_str()});
+
+            let e = event.unwrap();
+
+            let mut resp = warp::reply::html(e.data).into_response();
+
+            resp.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/vnd.api+json"),
+            );
+
+            *resp.status_mut() = StatusCode::from_u16(e.code.parse::<u16>().unwrap()).unwrap();
+
+            Ok(resp)
         }
     }
 
