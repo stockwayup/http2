@@ -13,23 +13,30 @@ where
     pub method: String,
     pub user_values: HashMap<String, T>,
     pub uri: Uri<'a>,
+    #[serde(with = "serde_bytes")]
     pub body: &'a [u8],
 }
 
 #[derive(Serialize)]
 pub struct Uri<'a> {
+    #[serde(with = "serde_bytes")]
     pub path_original: &'a [u8],
+    #[serde(with = "serde_bytes")]
     pub scheme: &'a [u8],
+    #[serde(with = "serde_bytes")]
     pub path: &'a [u8],
+    #[serde(with = "serde_bytes")]
     pub query_string: &'a [u8],
+    #[serde(with = "serde_bytes")]
     pub hash: &'a [u8],
+    #[serde(with = "serde_bytes")]
     pub host: &'a [u8],
     pub args: Args,
 }
 
 #[derive(Serialize)]
 pub struct Args {
-    pub val: HashMap<String, String>,
+    pub val: HashMap<String, Vec<u8>>,
 }
 
 impl<'a, T> HttpReq<'a, T>
@@ -41,7 +48,7 @@ where
         route_name: String,
         authorization: Option<String>,
         user_values: HashMap<String, T>,
-        query_args: HashMap<String, String>,
+        query_args: HashMap<String, Vec<u8>>,
         body: &'a [u8],
     ) -> HttpReq<'a, T> {
         HttpReq {

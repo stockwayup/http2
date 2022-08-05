@@ -312,19 +312,18 @@ async fn process<T>(
     router: Arc<Router>,
     route_name: String,
     user_values: HashMap<String, T>,
-    b: &[u8],
+    body: &[u8],
 ) -> WebResult<impl Reply>
 where
     T: Serialize,
 {
-    let req = HttpReq::new(
-        &route,
-        route_name,
-        authorization,
-        user_values,
-        query_args,
-        b,
-    );
+    let mut qa: HashMap<String, Vec<u8>> = HashMap::new();
+
+    for (key, value) in query_args {
+        qa.insert(key, value.into_bytes());
+    }
+
+    let req = HttpReq::new(&route, route_name, authorization, user_values, qa, body);
 
     let publ = publisher.read().await;
 
