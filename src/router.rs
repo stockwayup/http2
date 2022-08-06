@@ -1,7 +1,9 @@
+use log::info;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Notify, RwLock};
 
 pub struct Router {
     state: State,
@@ -55,7 +57,7 @@ impl Router {
         }
     }
 
-    pub async fn run(&self) {
+    pub async fn run(&self, notify: Arc<Notify>) {
         let mut sub_receiver = self.state.sub_ch.subscribe();
         let mut unsub_receiver = self.state.unsub_ch.subscribe();
         let mut pub_receiver: broadcast::Receiver<Event> = self.state.pub_ch.subscribe();
@@ -89,6 +91,30 @@ impl Router {
                     };
 
                     drop(map)
+                }
+                _ = notify.notified() => {
+                    log::info!("router received shutdown signal");
+                    break
+                },
+            }
+        }
+
+        // send all remaining responses
+        if !pub_receiver.is_empty() {
+            while !pub_receiver.is_empty() {
+                tokio::select! {
+                    event = pub_receiver.recv() => {
+                        let e = event.unwrap();
+
+                        let map = self.state.subscribers.write().await;
+
+                        match map.get(&e.id) {
+                            Some(sender) => sender.send(e).await,
+                            None => Ok(()),
+                        };
+
+                        drop(map)
+                    }
                 }
             }
         }

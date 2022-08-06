@@ -7,6 +7,7 @@ use bytes::Buf;
 use kv_log_macro as log;
 use serde::Serialize;
 use tokio::sync::RwLock;
+use tokio::time;
 use warp::filters::route::Info;
 use warp::http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
 use warp::{Rejection, Reply};
@@ -18,6 +19,8 @@ use super::events::HttpReq;
 use super::responses::{Attributes, Statuses, StatusesData};
 
 type WebResult<T> = StdResult<T, Rejection>;
+
+const TIMEOUT: u64 = 5;
 
 pub async fn health_check() -> Result<impl warp::Reply, Infallible> {
     let statuses = Statuses {
@@ -328,12 +331,12 @@ where
     let publ = publisher.read().await;
 
     let id = publ.publish(req).await.map_err(|e| {
-        log::error!(target: "app", "can't connect to rmq, {}", e);
+        log::error!("can't connect to rmq, {}", e);
 
         warp::reject::reject()
     })?;
 
-    log::info!(target: "app", "request published", {id: id.clone().as_str()});
+    log::info!("request published", {id: id.clone().as_str()});
 
     let mut ch = router.subscribe(id.clone());
 
@@ -341,7 +344,7 @@ where
         event = ch.recv() => {
             router.unsubscribe(id.clone());
 
-            log::info!(target: "app", "response received", {id: id.clone().as_str()});
+            log::info!("response received", {id: id.clone().as_str()});
 
             let e = event.unwrap();
 
@@ -356,7 +359,12 @@ where
 
             Ok(resp)
         }
-    }
+        _ = time::sleep(time::Duration::from_secs(TIMEOUT)) => {
+            log::warn!("response timeout", {id: id.clone().as_str()});
 
-    // todo: timeout
+            router.unsubscribe(id.clone());
+
+            Ok(warp::reply::with_status("", StatusCode::REQUEST_TIMEOUT).into_response())
+        }
+    }
 }

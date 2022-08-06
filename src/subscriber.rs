@@ -8,6 +8,8 @@ use lapin::options::{
 use lapin::types::{FieldTable, ShortUInt};
 use lapin::ExchangeKind::Fanout;
 use lapin::{Channel, Error};
+use log::info;
+use tokio::sync::Notify;
 
 use crate::router::Event;
 use crate::Router;
@@ -25,7 +27,7 @@ impl Subscriber {
         Self { rmq_ch, router }
     }
 
-    pub async fn subscribe(&self) -> Result<(), Error> {
+    pub async fn subscribe(&self, notify: Arc<Notify>) -> Result<(), Error> {
         let queue_name = self.declare_queues().await.unwrap();
 
         self.rmq_ch
@@ -47,20 +49,29 @@ impl Subscriber {
             )
             .await?;
 
-        while let Some(delivery) = consumer.next().await {
-            if let Ok(delivery) = delivery {
-                delivery.ack(BasicAckOptions { multiple: false }).await?;
+        loop {
+            tokio::select! {
+                Some(delivery) = consumer.next() => {
+                    if let Ok(delivery) = delivery {
+                        delivery.ack(BasicAckOptions { multiple: false }).await?;
 
-                self.router.publish(Event::new(
-                    delivery
-                        .properties
-                        .message_id()
-                        .clone()
-                        .unwrap()
-                        .to_string(),
-                    delivery.data,
-                    delivery.properties.kind().clone().unwrap().to_string(),
-                ));
+                        self.router.publish(Event::new(
+                            delivery
+                                .properties
+                                .message_id()
+                                .clone()
+                                .unwrap()
+                                .to_string(),
+                            delivery.data,
+                            delivery.properties.kind().clone().unwrap().to_string(),
+                        ));
+                    }
+                }
+                _ = notify.notified() => {
+                    log::info!("subscriber received shutdown signal");
+
+                    break
+                }
             }
         }
 
