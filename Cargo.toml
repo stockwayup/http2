@@ -2,6 +2,7 @@
 name = "http2"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,20 +11,27 @@ log = "^0.4"
 json_env_logger2 = "^0.2"
 kv-log-macro = "^1.0"
 tokio = { version = "^1", features = ["full"] }
-warp = { git = "https://github.com/soulgarden/warp", branch = "feature/route-info" }
+axum = { version = "^0.5", features = ["headers", "http2"] }
+hyper = { version = "^0.14", features = ["full"] }
+tower = { version = "^0.4", features = ["make"] }
+tower-http = { version = "^0.3", features = ["cors"] }
 serde = { version = "^1.0", features = ["derive"] }
 serde_derive = "^1.0"
 serde_bytes = "^0.11"
+serde_json = "^1.0"
 bytes = "^1"
 lapin = "^2.1"
 deadpool = "^0.9"
 deadpool-lapin = "^0.10"
 futures = "^0.3"
 thiserror = "^1"
-time = "0.3.11"
-libc = "0.2"
-tokio-executor-trait = "2.1.0"
-tokio-reactor-trait = "1.1.0"
+time = "^0.3"
+libc = "^0.2"
+tokio-executor-trait = "^2.1"
+tokio-reactor-trait = "^1.1"
+url = "^2.2"
+http-body = "^0.4"
+async-trait = "^0.1"
 
 [dependencies.uuid]
 version = "^1.1"

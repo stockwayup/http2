@@ -8,22 +8,21 @@ use lapin::options::{
 use lapin::types::{FieldTable, ShortUInt};
 use lapin::ExchangeKind::Fanout;
 use lapin::{Channel, Error};
-use log::info;
 use tokio::sync::Notify;
 
-use crate::router::Event;
-use crate::Router;
+use crate::broker::Event;
+use crate::Broker;
 
 const RESP_EXCHANGE: &str = "http.responses";
 const PREFETCH_COUNT: ShortUInt = 1;
 
 pub struct Subscriber {
     rmq_ch: Channel,
-    router: Arc<Router>,
+    router: Arc<Broker>,
 }
 
 impl Subscriber {
-    pub fn new(rmq_ch: Channel, router: Arc<Router>) -> Self {
+    pub fn new(rmq_ch: Channel, router: Arc<Broker>) -> Self {
         Self { rmq_ch, router }
     }
 

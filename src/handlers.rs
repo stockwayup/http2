@@ -1,28 +1,31 @@
 use std::collections::HashMap;
-use std::convert::Infallible;
-use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use bytes::Buf;
+use axum::extract::{OriginalUri, Query};
+use axum::headers::authorization::{Authorization, Bearer};
+use axum::headers::HeaderValue;
+use axum::http::header::CONTENT_TYPE;
+use axum::http::{Method, Response, StatusCode};
+use axum::response::IntoResponse;
+use axum::{body, body::Bytes, Extension, Json};
 use kv_log_macro as log;
 use serde::Serialize;
+use serde_json::Serializer;
 use tokio::sync::RwLock;
 use tokio::time;
-use warp::filters::route::Info;
-use warp::http::{header::CONTENT_TYPE, HeaderValue, StatusCode};
-use warp::{Rejection, Reply};
 
+use crate::broker::Broker;
+use crate::extractor::OptionalHeader;
 use crate::publisher::Publisher;
-use crate::router::Router;
+use crate::responses::errors::{Error, Errors};
 
 use super::events::HttpReq;
-use super::responses::{Attributes, Statuses, StatusesData};
-
-type WebResult<T> = StdResult<T, Rejection>;
+use super::responses::statuses::{Attributes, Statuses, StatusesData};
 
 const TIMEOUT: u64 = 5;
+const JSON_API_TYPE: &str = "application/vnd.api+json";
 
-pub async fn health_check() -> Result<impl warp::Reply, Infallible> {
+pub async fn health_check() -> impl IntoResponse {
     let statuses = Statuses {
         data: StatusesData {
             id: "1".to_string(),
@@ -33,338 +36,132 @@ pub async fn health_check() -> Result<impl warp::Reply, Infallible> {
         },
     };
 
-    let mut resp = warp::reply::json(&statuses).into_response();
+    let mut resp = (StatusCode::OK, Json(statuses)).into_response();
 
-    resp.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("application/vnd.api+json"),
+    resp.headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
+
+    resp
+}
+
+pub async fn not_found() -> impl IntoResponse {
+    let errors = Errors {
+        errors: vec![Error {
+            code: "404".to_string(),
+            title: "Not found".to_string(),
+            detail: "The requested resource could not be found.".to_string(),
+        }],
+    };
+
+    let mut buf = Vec::new();
+
+    let mut se = Serializer::new(&mut buf);
+
+    errors.serialize(&mut se).unwrap();
+
+    let mut resp = Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(http_body::Full::from(buf))
+        .unwrap();
+
+    resp.headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
+
+    resp
+}
+
+pub async fn proxy(
+    OriginalUri(uri): OriginalUri,
+    method: Method,
+    body: Bytes,
+    Query(query_args): Query<HashMap<String, Vec<u8>>>,
+    authorization: OptionalHeader<Authorization<Bearer>>,
+    Extension(pub_svc): Extension<Arc<RwLock<Publisher>>>,
+    Extension(broker): Extension<Arc<Broker>>,
+) -> impl IntoResponse {
+    let user_values: HashMap<String, String> = HashMap::new();
+
+    let req = HttpReq::new(
+        method.to_string(),
+        uri,
+        Option::Some(authorization.token().to_string()),
+        user_values,
+        query_args,
+        &body,
     );
 
-    Ok(resp)
-}
+    let publ = pub_svc.read().await;
 
-pub async fn with_body<'a>(
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    body: bytes::Bytes,
-    route_name: String,
-) -> WebResult<impl Reply> {
-    let user_values: HashMap<String, String> = HashMap::new();
+    let id = publ
+        .publish(req)
+        .await
+        .map_err(|e| {
+            log::error!("can't connect to rmq, {}", e);
 
-    let b = &body.chunk();
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        b,
-    )
-    .await
-}
-
-pub async fn with_body_and_param<'a, T>(
-    param_value: T,
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    body: bytes::Bytes,
-    route_name: String,
-    param_name: String,
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut user_values = HashMap::new();
-
-    user_values.insert(param_name, param_value);
-
-    let b = &body.chunk();
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        b,
-    )
-    .await
-}
-
-pub async fn with_body_and_2_params<'a, T>(
-    param1_value: T,
-    param2_value: T,
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    body: bytes::Bytes,
-    route_name: String,
-    param1_name: String,
-    param2_name: String,
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut user_values = HashMap::new();
-
-    user_values.insert(param1_name, param1_value);
-    user_values.insert(param2_name, param2_value);
-
-    let b = &body.chunk();
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        b,
-    )
-    .await
-}
-
-pub async fn with_body_and_3_params<'a, T>(
-    param1_value: T,
-    param2_value: T,
-    param3_value: T,
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    body: bytes::Bytes,
-    route_name: String,
-    param1_name: String,
-    param2_name: String,
-    param3_name: String,
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut user_values = HashMap::new();
-
-    user_values.insert(param1_name, param1_value);
-    user_values.insert(param2_name, param2_value);
-    user_values.insert(param3_name, param3_value);
-
-    let b = &body.chunk();
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        b,
-    )
-    .await
-}
-
-pub async fn handle<'a>(
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    route_name: String,
-) -> WebResult<impl Reply> {
-    let user_values: HashMap<String, String> = HashMap::new();
-
-    let b: [u8; 0] = [];
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        &b,
-    )
-    .await
-}
-
-pub async fn with_param<'a, T>(
-    param_value: T,
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    route_name: String,
-    param_name: String,
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut user_values = HashMap::new();
-
-    user_values.insert(param_name, param_value);
-
-    let b: [u8; 0] = [];
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        &b,
-    )
-    .await
-}
-
-pub async fn with_2_params<'a, T>(
-    param1_value: T,
-    param2_value: T,
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    route_name: String,
-    param1_name: String,
-    param2_name: String,
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut user_values = HashMap::new();
-
-    user_values.insert(param1_name, param1_value);
-    user_values.insert(param2_name, param2_value);
-
-    let b: [u8; 0] = [];
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        &b,
-    )
-    .await
-}
-
-pub async fn with_3_params<'a, T>(
-    param1_value: T,
-    param2_value: T,
-    param3_value: T,
-    route: Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    route_name: String,
-    param1_name: String,
-    param2_name: String,
-    param3_name: String,
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut user_values = HashMap::new();
-
-    user_values.insert(param1_name, param1_value);
-    user_values.insert(param2_name, param2_value);
-    user_values.insert(param3_name, param3_value);
-
-    let b: [u8; 0] = [];
-
-    process(
-        &route,
-        authorization,
-        query_args,
-        publisher,
-        router,
-        route_name,
-        user_values,
-        &b,
-    )
-    .await
-}
-
-async fn process<T>(
-    route: &Info,
-    authorization: Option<String>,
-    query_args: HashMap<String, String>,
-    publisher: Arc<RwLock<Publisher>>,
-    router: Arc<Router>,
-    route_name: String,
-    user_values: HashMap<String, T>,
-    body: &[u8],
-) -> WebResult<impl Reply>
-where
-    T: Serialize,
-{
-    let mut qa: HashMap<String, Vec<u8>> = HashMap::new();
-
-    for (key, value) in query_args {
-        qa.insert(key, value.into_bytes());
-    }
-
-    let req = HttpReq::new(&route, route_name, authorization, user_values, qa, body);
-
-    let publ = publisher.read().await;
-
-    let id = publ.publish(req).await.map_err(|e| {
-        log::error!("can't connect to rmq, {}", e);
-
-        warp::reject::reject()
-    })?;
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                body::boxed(body::Empty::new()),
+            )
+                .into_response();
+        })
+        .unwrap();
 
     log::info!("request published", {id: id.clone().as_str()});
 
-    let mut ch = router.subscribe(id.clone());
+    let mut ch = broker.subscribe(id.clone());
 
     tokio::select! {
         event = ch.recv() => {
-            router.unsubscribe(id.clone());
+            broker.unsubscribe(id.clone());
 
             log::info!("response received", {id: id.clone().as_str()});
 
             let e = event.unwrap();
 
-            let mut resp = warp::reply::html(e.data).into_response();
+            let mut resp = Response::builder()
+                .status(StatusCode::from_u16(e.code.parse::<u16>().unwrap()).unwrap())
+                .body(http_body::Full::from(e.data))
+                .unwrap();
 
             resp.headers_mut().insert(
                 CONTENT_TYPE,
-                HeaderValue::from_static("application/vnd.api+json"),
+                HeaderValue::from_static(JSON_API_TYPE),
             );
 
-            *resp.status_mut() = StatusCode::from_u16(e.code.parse::<u16>().unwrap()).unwrap();
-
-            Ok(resp)
+            resp
         }
         _ = time::sleep(time::Duration::from_secs(TIMEOUT)) => {
-            log::warn!("response timeout", {id: id.clone().as_str()});
+            log::warn!("request timeout", {id: id.clone().as_str()});
 
-            router.unsubscribe(id.clone());
+            broker.unsubscribe(id.clone());
 
-            Ok(warp::reply::with_status("", StatusCode::REQUEST_TIMEOUT).into_response())
+            let errors = Errors {
+                errors: vec![
+                    Error {
+                        code: "408".to_string(),
+                        title: "Request timeout".to_string(),
+                        detail: "The server timed out waiting for the request.".to_string(),
+                    }
+                ]
+            };
+
+            let mut buf = Vec::new();
+
+            let mut se = Serializer::new(&mut buf);
+
+            errors.serialize(&mut se).unwrap();
+
+            let mut resp = Response::builder()
+                .status(StatusCode::REQUEST_TIMEOUT,)
+                .body(http_body::Full::from(buf))
+                .unwrap();
+
+            resp.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static(JSON_API_TYPE),
+            );
+
+            resp
         }
     }
 }

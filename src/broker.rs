@@ -1,11 +1,10 @@
-use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, Notify, RwLock};
 
-pub struct Router {
+pub struct Broker {
     state: State,
 }
 
@@ -50,7 +49,7 @@ impl Event {
     }
 }
 
-impl Router {
+impl Broker {
     pub fn new() -> Self {
         Self {
             state: State::new(),
