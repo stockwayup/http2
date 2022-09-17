@@ -1,28 +1,27 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{OriginalUri, Query};
-use axum::headers::authorization::{Authorization, Bearer};
-use axum::headers::HeaderValue;
-use axum::http::header::CONTENT_TYPE;
-use axum::http::{Method, Response, StatusCode};
+use axum::extract::{MatchedPath, OriginalUri, Path, Query};
+use axum::headers::{
+    authorization::{Authorization, Bearer},
+    HeaderValue,
+};
+use axum::http::{header::CONTENT_TYPE, Method, Response, StatusCode};
 use axum::response::IntoResponse;
-use axum::{body, body::Bytes, Extension, Json};
+use axum::{body, body::Bytes, Extension, Json, TypedHeader};
 use kv_log_macro as log;
 use serde::Serialize;
 use serde_json::Serializer;
-use tokio::sync::RwLock;
-use tokio::time;
+use tokio::{sync::RwLock, time};
 
 use crate::broker::Broker;
-use crate::extractor::OptionalHeader;
 use crate::publisher::Publisher;
 use crate::responses::errors::{Error, Errors};
 
 use super::events::HttpReq;
 use super::responses::statuses::{Attributes, Statuses, StatusesData};
 
-const TIMEOUT: u64 = 5;
+const TIMEOUT: u64 = 30;
 const JSON_API_TYPE: &str = "application/vnd.api+json";
 
 pub async fn health_check() -> impl IntoResponse {
@@ -72,19 +71,25 @@ pub async fn not_found() -> impl IntoResponse {
 
 pub async fn proxy(
     OriginalUri(uri): OriginalUri,
+    matched_path: MatchedPath,
     method: Method,
     body: Bytes,
-    Query(query_args): Query<HashMap<String, Vec<u8>>>,
-    authorization: OptionalHeader<Authorization<Bearer>>,
+    Path(user_values): Path<HashMap<String, String>>,
+    Query(query_args): Query<HashMap<String, String>>,
+    authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(pub_svc): Extension<Arc<RwLock<Publisher>>>,
     Extension(broker): Extension<Arc<Broker>>,
 ) -> impl IntoResponse {
-    let user_values: HashMap<String, String> = HashMap::new();
+    let token: String = match authorization {
+        None => "".to_string(),
+        Some(val) => val.token().to_string(),
+    };
 
     let req = HttpReq::new(
-        method.to_string(),
         uri,
-        Option::Some(authorization.token().to_string()),
+        matched_path.clone(),
+        method.to_string(),
+        token,
         user_values,
         query_args,
         &body,
@@ -104,9 +109,9 @@ pub async fn proxy(
             )
                 .into_response();
         })
-        .unwrap();
+        .unwrap(); // todo: check publish and repeat
 
-    log::info!("request published", {id: id.clone().as_str()});
+    log::info!("request published", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
 
     let mut ch = broker.subscribe(id.clone());
 
@@ -114,9 +119,9 @@ pub async fn proxy(
         event = ch.recv() => {
             broker.unsubscribe(id.clone());
 
-            log::info!("response received", {id: id.clone().as_str()});
-
             let e = event.unwrap();
+
+            log::info!("response received", {id: id.clone().as_str(), path: matched_path.clone().as_str(), code: e.code.as_str()});
 
             let mut resp = Response::builder()
                 .status(StatusCode::from_u16(e.code.parse::<u16>().unwrap()).unwrap())
@@ -131,7 +136,7 @@ pub async fn proxy(
             resp
         }
         _ = time::sleep(time::Duration::from_secs(TIMEOUT)) => {
-            log::warn!("request timeout", {id: id.clone().as_str()});
+            log::warn!("request timeout", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
 
             broker.unsubscribe(id.clone());
 

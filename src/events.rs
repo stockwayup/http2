@@ -1,19 +1,16 @@
 use std::collections::HashMap;
 
+use axum::extract::MatchedPath;
 use axum::http;
 use serde::Serialize;
-
-const BEARER: &str = "Bearer ";
+use serde_bytes_wrapper::Bytes;
 
 #[derive(Serialize)]
-pub struct HttpReq<'a, T>
-where
-    T: Serialize,
-{
+pub struct HttpReq<'a> {
     pub r#type: String,
     pub access_token: String,
     pub method: String,
-    pub user_values: HashMap<String, T>,
+    pub user_values: HashMap<String, String>,
     pub uri: Uri<'a>,
     #[serde(with = "serde_bytes")]
     pub body: &'a [u8],
@@ -33,40 +30,34 @@ pub struct Uri<'a> {
     pub hash: &'a [u8],
     #[serde(with = "serde_bytes")]
     pub host: Vec<u8>,
+
     pub args: Args,
 }
 
 #[derive(Serialize)]
 pub struct Args {
-    pub val: HashMap<String, Vec<u8>>,
+    pub val: HashMap<String, Bytes>,
 }
 
-impl<'a, T> HttpReq<'a, T>
-where
-    T: Serialize,
-{
+impl<'a> HttpReq<'a> {
     pub fn new(
-        method: String,
         uri: http::Uri,
-        authorization: Option<String>,
-        user_values: HashMap<String, T>,
-        query_args: HashMap<String, Vec<u8>>,
+        matched_path: MatchedPath,
+        method: String,
+        authorization: String,
+        user_values: HashMap<String, String>,
+        query_args: HashMap<String, String>,
         body: &'a [u8],
-    ) -> HttpReq<'a, T> {
-        HttpReq {
-            r#type: "".to_string(),
-            access_token: match authorization {
-                None => "".to_string(),
-                Some(t) => {
-                    if t.contains(BEARER) {
-                        let split = t.split_once(BEARER).unwrap();
+    ) -> HttpReq<'a> {
+        let mut args = HashMap::new();
 
-                        split.1.to_string()
-                    } else {
-                        "".to_string()
-                    }
-                }
-            },
+        for (key, val) in query_args {
+            args.insert(key, val.as_bytes().to_vec().into());
+        }
+
+        HttpReq {
+            r#type: matched_path.as_str().to_string(),
+            access_token: authorization,
             method: method.to_string(),
             user_values,
             uri: Uri {
@@ -85,7 +76,7 @@ where
                     None => "".to_string().into_bytes(),
                     Some(h) => h.to_string().into_bytes(),
                 },
-                args: Args { val: query_args },
+                args: Args { val: args },
             },
             body,
         }

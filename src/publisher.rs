@@ -24,9 +24,9 @@ impl Publisher {
         Self { rmq_ch: ch }
     }
 
-    pub async fn publish<'b, T: serde::Serialize>(
+    pub async fn publish<'b>(
         &self,
-        req: HttpReq<'b, T>,
+        req: HttpReq<'b>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut buf = Vec::new();
 

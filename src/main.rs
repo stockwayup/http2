@@ -20,7 +20,6 @@ use crate::subscriber::Subscriber;
 mod broker;
 mod conf;
 mod events;
-mod extractor;
 mod handlers;
 mod publisher;
 mod responses;
