@@ -9,20 +9,21 @@ use lapin::types::FieldTable;
 use lapin::ConnectionProperties;
 use lapin::{Channel, Error};
 
-type Connection = deadpool::managed::Object<deadpool_lapin::Manager>;
+use crate::conf::RMQ;
 
-const QUEUE: &str = "http.requests";
+type Connection = deadpool::managed::Object<deadpool_lapin::Manager>;
 
 pub struct Rmq {
     pool: Pool,
     conn: Connection,
+    conf: RMQ,
 }
 
 impl Rmq {
-    pub async fn new(pool: Pool) -> Self {
-        let conn = pool.get().await.unwrap();
+    pub async fn new(pool: Pool, conf: RMQ) -> Self {
+        let conn = pool.get().await.expect("can't get connection from pool");
 
-        Self { pool, conn }
+        Self { pool, conn, conf }
     }
 
     pub async fn open_ch(&self) -> Result<Channel, Box<dyn std::error::Error>> {
@@ -37,7 +38,7 @@ impl Rmq {
 
     pub async fn declare_queues(&self, ch: Channel) -> Result<(), Error> {
         ch.queue_declare(
-            QUEUE,
+            self.conf.request_queue.as_str(),
             QueueDeclareOptions {
                 passive: false,
                 durable: false,
@@ -57,9 +58,11 @@ impl Rmq {
     }
 }
 
-pub async fn setup_rmq() -> Rmq {
-    let addr =
-        std::env::var("AMQP_ADDR").unwrap_or_else(|_| "amqp://user:pass@127.0.0.1:5672/%2f".into());
+pub async fn setup_rmq(conf: RMQ) -> Rmq {
+    let addr = format!(
+        "amqp://{}:{}@{}:{}/%2f",
+        conf.user, conf.password, conf.host, conf.port
+    );
 
     let manager = Manager::new(
         addr,
@@ -77,13 +80,13 @@ pub async fn setup_rmq() -> Rmq {
             recycle: Some(Duration::new(300, 0)),
         })
         .build()
-        .expect("can't create pool");
+        .expect("can't create rmq pool");
 
-    let rmq = Rmq::new(pool.clone()).await;
+    let rmq = Rmq::new(pool.clone(), conf).await;
 
-    let ch = rmq.open_ch().await.unwrap();
+    let ch = rmq.open_ch().await.expect("can't open channel");
 
-    rmq.declare_queues(ch).await.unwrap();
+    rmq.declare_queues(ch).await.expect("can't declare queues");
 
     rmq
 }

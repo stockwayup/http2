@@ -64,7 +64,7 @@ impl Broker {
         loop {
             tokio::select! {
                 sub = sub_receiver.recv() => {
-                    let s = sub.unwrap();
+                    let s = sub.expect("sub channel closed");
 
                     let mut map = self.state.subscribers.write().await;
 
@@ -80,7 +80,7 @@ impl Broker {
                     drop(map)
                 }
                 event = pub_receiver.recv() => {
-                    let e = event.unwrap();
+                    let e = event.expect("pub channel closed");
 
                     let map = self.state.subscribers.write().await;
 
@@ -103,7 +103,7 @@ impl Broker {
             while !pub_receiver.is_empty() {
                 tokio::select! {
                     event = pub_receiver.recv() => {
-                        let e = event.unwrap();
+                        let e = event.expect("pub channel closed");
 
                         let map = self.state.subscribers.write().await;
 

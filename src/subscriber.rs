@@ -11,23 +11,29 @@ use lapin::{Channel, Error};
 use tokio::sync::Notify;
 
 use crate::broker::Event;
+use crate::conf::RMQ;
 use crate::Broker;
 
-const RESP_EXCHANGE: &str = "http.responses";
 const PREFETCH_COUNT: ShortUInt = 1;
 
 pub struct Subscriber {
     rmq_ch: Channel,
     router: Arc<Broker>,
+    conf: RMQ,
 }
 
 impl Subscriber {
-    pub fn new(rmq_ch: Channel, router: Arc<Broker>) -> Self {
-        Self { rmq_ch, router }
+    pub fn new(rmq_ch: Channel, router: Arc<Broker>, conf: RMQ) -> Self {
+        Self {
+            rmq_ch,
+            router,
+            conf,
+        }
     }
 
     pub async fn subscribe(&self, notify: Arc<Notify>) -> Result<(), Error> {
-        let queue_name = self.declare_queues().await.unwrap();
+        // todo: redeclare queues after reconnect
+        let queue_name = self.declare_request_queue().await.unwrap();
 
         self.rmq_ch
             .basic_qos(PREFETCH_COUNT, BasicQosOptions::default())
@@ -77,10 +83,10 @@ impl Subscriber {
         Ok(())
     }
 
-    pub async fn declare_queues(&self) -> Result<String, Error> {
+    pub async fn declare_request_queue(&self) -> Result<String, Error> {
         self.rmq_ch
             .exchange_declare(
-                RESP_EXCHANGE,
+                self.conf.response_exchange.as_str(),
                 Fanout,
                 ExchangeDeclareOptions {
                     passive: false,
@@ -111,7 +117,7 @@ impl Subscriber {
         self.rmq_ch
             .queue_bind(
                 queue.name().as_str(),
-                RESP_EXCHANGE,
+                self.conf.response_exchange.as_str(),
                 "",
                 QueueBindOptions::default(),
                 FieldTable::default(),

@@ -62,7 +62,7 @@ impl Publisher {
             )
             .await
             .map_err(|e| {
-                log::error!("can't publish: {}", e);
+                log::error!("can't publish event: {}", e);
 
                 e
             })?;

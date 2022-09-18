@@ -11,25 +11,27 @@ pub struct Conf {
     pub rmq: RMQ,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct RMQ {
     pub host: String,
     pub port: String,
     pub user: String,
     pub password: String,
-    pub request_exchange: String,
-    pub response_queue: String,
+    pub request_queue: String,
+    pub response_exchange: String,
 }
 
 impl Conf {
     pub fn new() -> Result<Self> {
-        let file = File::open("config.json").unwrap();
+        let file = File::open("config.json").expect("can't open config.json file");
 
         let mut buf_reader = BufReader::new(file);
 
         let mut contents = String::new();
 
-        buf_reader.read_to_string(&mut contents).unwrap();
+        buf_reader
+            .read_to_string(&mut contents)
+            .expect("can't read config.json file");
 
         let conf: Conf = serde_json::from_str(contents.as_str())?;
 

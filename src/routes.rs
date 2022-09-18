@@ -7,19 +7,22 @@ use axum::{
     Extension, Router,
 };
 use tokio::sync::RwLock;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+};
 
 use crate::broker::Broker;
 use crate::handlers::*;
 use crate::publisher::Publisher;
 
-const BODY_SIZE: u64 = 1024 * 250;
+const BODY_SIZE: usize = 1024 * 250;
 
 pub fn build_routes(pub_svc: Arc<RwLock<Publisher>>, broker: Arc<Broker>) -> Router {
     let router = Router::new();
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(Any) // todo: set values
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
@@ -89,6 +92,7 @@ pub fn build_routes(pub_svc: Arc<RwLock<Publisher>>, broker: Arc<Broker>) -> Rou
         .route("/api/v1/exchanges", get(proxy))
         .layer(Extension(pub_svc.clone()))
         .layer(Extension(broker.clone()))
+        .layer(RequestBodyLimitLayer::new(BODY_SIZE))
         .layer(cors)
         .fallback(get(not_found))
 }
