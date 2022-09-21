@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use deadpool::managed::Timeouts;
+use deadpool::managed::{Object, PoolError, Timeouts};
 use deadpool_lapin::Pool;
 use deadpool_lapin::{Manager, Runtime};
 use kv_log_macro as log;
@@ -11,23 +11,24 @@ use lapin::{Channel, Error};
 
 use crate::conf::RMQ;
 
-type Connection = deadpool::managed::Object<deadpool_lapin::Manager>;
+pub type Connection = Object<Manager>;
 
 pub struct Rmq {
     pool: Pool,
-    conn: Connection,
     conf: RMQ,
 }
 
 impl Rmq {
     pub async fn new(pool: Pool, conf: RMQ) -> Self {
-        let conn = pool.get().await.expect("can't get connection from pool");
-
-        Self { pool, conn, conf }
+        Self { pool, conf }
     }
 
-    pub async fn open_ch(&self) -> Result<Channel, Box<dyn std::error::Error>> {
-        let ch = self.conn.create_channel().await.map_err(|e| {
+    pub async fn connect(&self) -> Result<Connection, PoolError<Error>> {
+        self.pool.get().await
+    }
+
+    pub async fn open_ch(&self, conn: Connection) -> Result<Channel, Box<dyn std::error::Error>> {
+        let ch = conn.create_channel().await.map_err(|e| {
             log::error!("can't create channel, {}", e);
 
             e
@@ -41,7 +42,7 @@ impl Rmq {
             self.conf.request_queue.as_str(),
             QueueDeclareOptions {
                 passive: false,
-                durable: false,
+                durable: true,
                 exclusive: false,
                 auto_delete: false,
                 nowait: false,
@@ -84,7 +85,8 @@ pub async fn setup_rmq(conf: RMQ) -> Rmq {
 
     let rmq = Rmq::new(pool.clone(), conf).await;
 
-    let ch = rmq.open_ch().await.expect("can't open channel");
+    let conn = rmq.connect().await.expect("can't get connection from pool");
+    let ch = rmq.open_ch(conn).await.expect("can't open channel");
 
     rmq.declare_queues(ch).await.expect("can't declare queues");
 

@@ -9,6 +9,7 @@ use serde_json::Result;
 pub struct Conf {
     pub listen_port: u16,
     pub rmq: RMQ,
+    pub allowed_origins: Vec<String>,
 }
 
 #[derive(Deserialize, Clone)]

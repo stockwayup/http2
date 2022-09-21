@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::http::header;
+use axum::http::{header, HeaderValue};
 use axum::{
     http::Method,
     routing::{delete, get, post},
@@ -18,11 +18,21 @@ use crate::publisher::Publisher;
 
 const BODY_SIZE: usize = 1024 * 250;
 
-pub fn build_routes(pub_svc: Arc<RwLock<Publisher>>, broker: Arc<Broker>) -> Router {
+pub fn build_routes(
+    allowed_origins: Vec<String>,
+    pub_svc: Arc<RwLock<Publisher>>,
+    broker: Arc<Broker>,
+) -> Router {
     let router = Router::new();
 
+    let mut origins: Vec<HeaderValue> = Vec::new();
+
+    for origin in allowed_origins {
+        origins.push(HeaderValue::from_str(origin.as_str()).unwrap());
+    }
+
     let cors = CorsLayer::new()
-        .allow_origin(Any) // todo: set values
+        .allow_origin(origins)
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 

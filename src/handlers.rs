@@ -94,7 +94,7 @@ pub async fn proxy(
         &body,
     );
 
-    let publ = pub_svc.read().await;
+    let mut publ = pub_svc.write().await;
 
     let id = match publ.publish(req).await {
         Ok(id) => id,
@@ -104,6 +104,8 @@ pub async fn proxy(
             return get_500_error().into_response();
         }
     };
+
+    drop(publ);
 
     log::info!("request published", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
 

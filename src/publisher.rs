@@ -1,4 +1,5 @@
 use std::ops::Add;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,23 +10,26 @@ use lapin::types::{ShortShortUInt, ShortString};
 use lapin::Channel;
 use rmp_serde::Serializer;
 use serde::Serialize;
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::events::HttpReq;
+use crate::rmq::Rmq;
 
 const QUEUE: &str = "http.requests";
 
 pub struct Publisher {
-    rmq_ch: Channel,
+    rmq: Arc<RwLock<Rmq>>,
+    rmq_ch: Option<Channel>,
 }
 
 impl Publisher {
-    pub fn new(ch: Channel) -> Self {
-        Self { rmq_ch: ch }
+    pub fn new(rmq: Arc<RwLock<Rmq>>) -> Self {
+        Self { rmq, rmq_ch: None }
     }
 
     pub async fn publish<'b>(
-        &self,
+        &mut self,
         req: HttpReq<'b>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut buf = Vec::new();
@@ -37,7 +41,7 @@ impl Publisher {
         let start = SystemTime::now();
         let since_the_epoch = start
             .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
+            .expect("time went backwards");
 
         let expiration = since_the_epoch
             .add(Duration::from_secs(120))
@@ -52,7 +56,19 @@ impl Publisher {
             .with_delivery_mode(ShortShortUInt::from(1))
             .with_expiration(ShortString::from(expiration));
 
+        if self.rmq_ch.is_none() || !self.rmq_ch.as_ref().unwrap().status().connected() {
+            {
+                let rmq = self.rmq.read().await;
+
+                let conn = rmq.connect().await?;
+
+                self.rmq_ch = Some(rmq.open_ch(conn).await?);
+            }
+        }
+
         self.rmq_ch
+            .as_ref()
+            .unwrap()
             .basic_publish(
                 "",
                 QUEUE,

@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use crate::broker::Broker;
 use crate::conf::Conf;
 use crate::publisher::Publisher;
-use crate::rmq::setup_rmq;
+use crate::rmq::{setup_rmq, Rmq};
 use crate::routes::build_routes;
 use crate::signals::listen_signals;
 use crate::subscriber::Subscriber;
@@ -40,19 +40,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let conf = Conf::new().unwrap();
 
-    let rmq = setup_rmq(conf.rmq.clone()).await;
+    let rmq = Arc::new(RwLock::new(setup_rmq(conf.rmq.clone()).await));
 
-    let rmq_ch = rmq.open_ch().await.unwrap();
-
-    let pub_svc = Arc::new(RwLock::new(Publisher::new(rmq_ch)));
-
-    let rmq_ch = rmq.open_ch().await.unwrap();
+    let pub_svc = Arc::new(RwLock::new(Publisher::new(rmq.clone())));
 
     let broker = Arc::new(Broker::new());
 
-    let sub_svc = Subscriber::new(rmq_ch, broker.clone(), conf.rmq);
+    let sub_svc = Subscriber::new(rmq.clone(), broker.clone(), conf.rmq);
 
-    let routes = build_routes(pub_svc.clone(), broker.clone());
+    let routes = build_routes(conf.allowed_origins, pub_svc.clone(), broker.clone());
 
     let notify = listen_signals();
 
@@ -73,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = tokio::try_join!(
         tokio::task::spawn(server),
         tokio::task::spawn(async move { broker.run(router_shutdown_notify).await }),
-        tokio::task::spawn(async move { sub_svc.subscribe(sub_svc_shutdown_notify).await }),
+        tokio::task::spawn(async move { sub_svc.run(sub_svc_shutdown_notify).await }),
     );
 
     match result {
@@ -81,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => log::error!("thread join error {}", e),
     }
 
-    rmq.close();
+    rmq.read().await.close();
 
     Ok(())
 }

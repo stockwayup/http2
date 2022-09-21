@@ -8,39 +8,46 @@ use lapin::options::{
 use lapin::types::{FieldTable, ShortUInt};
 use lapin::ExchangeKind::Fanout;
 use lapin::{Channel, Error};
-use tokio::sync::Notify;
+use log::warn;
+use tokio::sync::{Notify, RwLock};
+use tokio::time::{sleep, Duration};
 
 use crate::broker::Event;
 use crate::conf::RMQ;
-use crate::Broker;
+use crate::{Broker, Rmq};
 
 const PREFETCH_COUNT: ShortUInt = 1;
 
 pub struct Subscriber {
-    rmq_ch: Channel,
-    router: Arc<Broker>,
+    rmq: Arc<RwLock<Rmq>>,
+    broker: Arc<Broker>,
     conf: RMQ,
 }
 
 impl Subscriber {
-    pub fn new(rmq_ch: Channel, router: Arc<Broker>, conf: RMQ) -> Self {
-        Self {
-            rmq_ch,
-            router,
-            conf,
-        }
+    pub fn new(rmq: Arc<RwLock<Rmq>>, broker: Arc<Broker>, conf: RMQ) -> Self {
+        Self { rmq, broker, conf }
     }
 
-    pub async fn subscribe(&self, notify: Arc<Notify>) -> Result<(), Error> {
-        // todo: redeclare queues after reconnect
-        let queue_name = self.declare_request_queue().await.unwrap();
+    pub async fn run(&self, notify: Arc<Notify>) -> Result<(), Error> {
+        loop {
+            if self.subscribe(notify.clone()).await? {
+                break;
+            }
+        }
 
-        self.rmq_ch
-            .basic_qos(PREFETCH_COUNT, BasicQosOptions::default())
+        Ok(())
+    }
+
+    pub async fn subscribe(&self, notify: Arc<Notify>) -> Result<bool, Error> {
+        let ch = self.handle_connection().await;
+
+        let queue_name = self.declare_request_queue(ch.clone()).await.unwrap();
+
+        ch.basic_qos(PREFETCH_COUNT, BasicQosOptions::default())
             .await?;
 
-        let mut consumer = self
-            .rmq_ch
+        let mut consumer = ch
             .basic_consume(
                 queue_name.as_str(),
                 "",
@@ -60,7 +67,7 @@ impl Subscriber {
                     if let Ok(delivery) = delivery {
                         delivery.ack(BasicAckOptions { multiple: false }).await?;
 
-                        self.router.publish(Event::new(
+                        self.broker.publish(Event::new(
                             delivery
                                 .properties
                                 .message_id()
@@ -70,27 +77,58 @@ impl Subscriber {
                             delivery.data,
                             delivery.properties.kind().clone().unwrap().to_string(),
                         ));
+                    } else {
+                        log::error!("consumer stopped: {:?}", delivery);
+
+                        return Ok(false)
                     }
                 }
                 _ = notify.notified() => {
                     log::info!("subscriber received shutdown signal");
 
-                    break
+                    return Ok(true)
                 }
             }
         }
-
-        Ok(())
     }
 
-    pub async fn declare_request_queue(&self) -> Result<String, Error> {
-        self.rmq_ch
+    async fn handle_connection(&self) -> Channel {
+        loop {
+            sleep(Duration::from_millis(250)).await;
+
+            let rmq = self.rmq.read().await;
+
+            let conn_wrapped = rmq.connect().await;
+
+            if conn_wrapped.is_err() {
+                warn!(
+                    "can't get connection from pool, {}",
+                    conn_wrapped.unwrap_err()
+                );
+
+                continue;
+            }
+
+            let ch_wrapped = conn_wrapped.unwrap().create_channel().await;
+
+            if ch_wrapped.is_err() {
+                warn!("can't create channel, {}", ch_wrapped.unwrap_err());
+
+                continue;
+            }
+
+            return ch_wrapped.unwrap();
+        }
+    }
+
+    async fn declare_request_queue(&self, rmq_ch: Channel) -> Result<String, Error> {
+        rmq_ch
             .exchange_declare(
                 self.conf.response_exchange.as_str(),
                 Fanout,
                 ExchangeDeclareOptions {
                     passive: false,
-                    durable: false,
+                    durable: true,
                     auto_delete: false,
                     internal: false,
                     nowait: false,
@@ -99,8 +137,7 @@ impl Subscriber {
             )
             .await?;
 
-        let queue = self
-            .rmq_ch
+        let queue = rmq_ch
             .queue_declare(
                 "",
                 QueueDeclareOptions {
@@ -114,7 +151,7 @@ impl Subscriber {
             )
             .await?;
 
-        self.rmq_ch
+        rmq_ch
             .queue_bind(
                 queue.name().as_str(),
                 self.conf.response_exchange.as_str(),
