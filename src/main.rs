@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router_shutdown_notify = notify.clone();
     let sub_svc_shutdown_notify = notify.clone();
 
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), conf.listen_port);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), conf.listen_port);
 
     let server = axum::Server::bind(&addr)
         .serve(routes.into_make_service())

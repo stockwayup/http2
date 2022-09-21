@@ -7,10 +7,7 @@ use axum::{
     Extension, Router,
 };
 use tokio::sync::RwLock;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    limit::RequestBodyLimitLayer,
-};
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer};
 
 use crate::broker::Broker;
 use crate::handlers::*;
