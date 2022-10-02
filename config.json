@@ -19,5 +19,6 @@
     "http://localhost:8081",
     "https://dev.stockwayup.com",
     "https://stockwayup.com"
-  ]
+  ],
+  "is_debug": true
 }

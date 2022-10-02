@@ -33,12 +33,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = builder();
 
     builder.target(Target::Stdout);
-    builder.filter_level(LevelFilter::Debug);
-    builder.try_init().unwrap();
 
     json_env_logger2::panic_hook();
 
     let conf = Conf::new().unwrap();
+
+    builder.filter_level(LevelFilter::Info);
+
+    if conf.is_debug {
+        builder.filter_level(LevelFilter::Debug);
+    }
+    builder.try_init().unwrap();
 
     let rmq = Arc::new(RwLock::new(setup_rmq(conf.rmq.clone()).await));
 

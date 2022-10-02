@@ -10,6 +10,7 @@ pub struct Conf {
     pub listen_port: u16,
     pub rmq: RMQ,
     pub allowed_origins: Vec<String>,
+    pub is_debug: bool,
 }
 
 #[derive(Deserialize, Clone)]
