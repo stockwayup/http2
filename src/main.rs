@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use json_env_logger2::builder;
 use json_env_logger2::env_logger::Target;
-use log::LevelFilter;
+use log::{LevelFilter, warn};
 use tokio::sync::RwLock;
 
 use crate::broker::Broker;
@@ -30,20 +30,26 @@ mod subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    json_env_logger2::panic_hook();
+
     let mut builder = builder();
 
     builder.target(Target::Stdout);
-
-    json_env_logger2::panic_hook();
-
-    let conf = Conf::new().unwrap();
-
-    builder.filter_level(LevelFilter::Info);
-
-    if conf.is_debug {
-        builder.filter_level(LevelFilter::Debug);
-    }
+    builder.filter_level(LevelFilter::Debug);
     builder.try_init().unwrap();
+
+    let conf = match Conf::new() {
+        Ok(conf) => conf,
+        Err(err) => {
+            warn!("failed to load configuration, {}", err);
+
+            std::process::exit(1);
+        }
+    };
+
+    if !conf.is_debug {
+        log::set_max_level(LevelFilter::Info);
+    }
 
     let rmq = Arc::new(RwLock::new(setup_rmq(conf.rmq.clone()).await));
 
