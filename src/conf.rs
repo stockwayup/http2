@@ -1,7 +1,7 @@
-use std::{env, fmt};
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::{env, fmt};
 
 use serde::Deserialize;
 
@@ -41,18 +41,19 @@ impl Conf {
             Err(_) => "./config.json".to_string(),
         };
 
-        let file = File::open(path)
-            .map_err(|e| ConfError {
-                message: format!("can't open config.json file, {}", e.to_string()),
-            })?;
+        let file = File::open(path).map_err(|e| ConfError {
+            message: format!("can't open config.json file, {}", e.to_string()),
+        })?;
 
         let mut buf_reader = BufReader::new(file);
 
         let mut contents = String::new();
 
-        buf_reader.read_to_string(&mut contents).map_err(|e| ConfError {
-            message: format!("can't read config.json file, {}", e),
-        })?;
+        buf_reader
+            .read_to_string(&mut contents)
+            .map_err(|e| ConfError {
+                message: format!("can't read config.json file, {}", e),
+            })?;
 
         let conf: Conf = serde_json::from_str(contents.as_str()).map_err(|e| ConfError {
             message: format!("can't parse config.json file, {}", e),

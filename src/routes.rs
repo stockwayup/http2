@@ -44,7 +44,7 @@ pub fn build_routes(
         .route("/api/v1/users/:uid/day-price-periods", get(proxy))
         .route("/api/v1/users/:uid/view-history", get(proxy))
         .route("/api/v1/refresh-tokens", post(proxy))
-        .route("/api/v1/refresh-tokens/:refresh-token}", delete(proxy))
+        .route("/api/v1/refresh-tokens/:refresh-token", delete(proxy))
         .route("/api/v1/sessions", post(proxy))
         .route("/api/v1/confirmation-codes", get(proxy))
         .route("/api/v1/confirmation-codes/:id", post(proxy))

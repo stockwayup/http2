@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use json_env_logger2::builder;
 use json_env_logger2::env_logger::Target;
-use log::{LevelFilter, warn};
+use log::{warn, LevelFilter};
 use tokio::sync::RwLock;
 
 use crate::broker::Broker;
