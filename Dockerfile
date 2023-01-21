@@ -8,7 +8,7 @@ WORKDIR /tmp/rust/src/github.com/stockwayup/http2
 
 RUN cargo build --release
 
-FROM alpine:3.16
+FROM alpine:3.17
 
 RUN adduser -S www-data -G www-data
 

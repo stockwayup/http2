@@ -122,7 +122,7 @@ pub async fn proxy(
             get_200(e).into_response()
         }
         _ = time::sleep(time::Duration::from_secs(TIMEOUT)) => {
-            log::warn!("request timeout", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
+            log::error!("request timeout", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
 
             broker.unsubscribe(id.clone());
 
