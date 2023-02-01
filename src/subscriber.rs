@@ -8,7 +8,7 @@ use lapin::options::{
 use lapin::types::{FieldTable, ShortUInt};
 use lapin::ExchangeKind::Fanout;
 use lapin::{Channel, Error};
-use log::warn;
+use log::{error};
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, Duration};
 
@@ -44,8 +44,7 @@ impl Subscriber {
 
         let queue_name = self.declare_request_queue(ch.clone()).await.unwrap();
 
-        ch.basic_qos(PREFETCH_COUNT, BasicQosOptions::default())
-            .await?;
+        ch.basic_qos(PREFETCH_COUNT, BasicQosOptions::default()).await?;
 
         let mut consumer = ch
             .basic_consume(
@@ -101,7 +100,7 @@ impl Subscriber {
             let conn_wrapped = rmq.connect().await;
 
             if conn_wrapped.is_err() {
-                warn!(
+                error!(
                     "can't get connection from pool, {}",
                     conn_wrapped.unwrap_err()
                 );
@@ -112,7 +111,7 @@ impl Subscriber {
             let ch_wrapped = conn_wrapped.unwrap().create_channel().await;
 
             if ch_wrapped.is_err() {
-                warn!("can't create channel, {}", ch_wrapped.unwrap_err());
+                error!("can't create channel, {}", ch_wrapped.unwrap_err());
 
                 continue;
             }

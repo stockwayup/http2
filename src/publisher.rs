@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kv_log_macro as log;
 use lapin::options::BasicPublishOptions;
 use lapin::protocol::basic::AMQPProperties;
-use lapin::types::{ShortShortUInt, ShortString};
+use lapin::types::{ShortString};
 use lapin::Channel;
 use rmp_serde::Serializer;
 use serde::Serialize;
@@ -53,7 +53,7 @@ impl Publisher {
         let props = AMQPProperties::default()
             .with_content_type(ShortString::from("application/octet-stream"))
             .with_message_id(ShortString::from(id.to_string()))
-            .with_delivery_mode(ShortShortUInt::from(1))
+            .with_delivery_mode(1)
             .with_expiration(ShortString::from(expiration));
 
         if self.rmq_ch.is_none() || !self.rmq_ch.as_ref().unwrap().status().connected() {

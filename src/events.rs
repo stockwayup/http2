@@ -58,7 +58,7 @@ impl<'a> HttpReq<'a> {
         HttpReq {
             r#type: matched_path.as_str().to_string(),
             access_token: authorization,
-            method: method.to_string(),
+            method,
             user_values,
             uri: Uri {
                 path_original: uri.to_string().into_bytes(),
