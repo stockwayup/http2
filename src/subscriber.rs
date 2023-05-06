@@ -8,7 +8,7 @@ use lapin::options::{
 use lapin::types::{FieldTable, ShortUInt};
 use lapin::ExchangeKind::Fanout;
 use lapin::{Channel, Error};
-use log::{error};
+use log::error;
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, Duration};
 
@@ -44,7 +44,8 @@ impl Subscriber {
 
         let queue_name = self.declare_request_queue(ch.clone()).await.unwrap();
 
-        ch.basic_qos(PREFETCH_COUNT, BasicQosOptions::default()).await?;
+        ch.basic_qos(PREFETCH_COUNT, BasicQosOptions::default())
+            .await?;
 
         let mut consumer = ch
             .basic_consume(

@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kv_log_macro as log;
 use lapin::options::BasicPublishOptions;
 use lapin::protocol::basic::AMQPProperties;
-use lapin::types::{ShortString};
+use lapin::types::ShortString;
 use lapin::Channel;
 use rmp_serde::Serializer;
 use serde::Serialize;
