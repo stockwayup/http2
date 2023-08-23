@@ -5,5 +5,5 @@ lint:
 	cargo clippy --fix --allow-dirty
 
 build:
-	docker build . -t soulgarden/swup:http2-0.0.10 --platform linux/amd64
-	docker push soulgarden/swup:http2-0.0.10
+	docker build . -t soulgarden/swup:http2-0.0.11 --platform linux/amd64
+	docker push soulgarden/swup:http2-0.0.11
