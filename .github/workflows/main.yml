@@ -25,7 +25,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.11
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.12
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-to: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest,mode=max
 

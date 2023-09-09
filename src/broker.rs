@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{broadcast, Notify, RwLock};
+use tokio::sync::mpsc::{self, Receiver, Sender};
+
+const BUFFER_SIZE: usize = 128;
 
 pub struct Broker {
     state: State,
@@ -17,9 +19,9 @@ struct State {
 
 impl State {
     pub fn new() -> Self {
-        let (sub_tx, _) = broadcast::channel(128);
-        let (unsub_tx, _) = broadcast::channel(128);
-        let (pub_tx, _) = broadcast::channel(128);
+        let (sub_tx, _) = broadcast::channel(BUFFER_SIZE);
+        let (unsub_tx, _) = broadcast::channel(BUFFER_SIZE);
+        let (pub_tx, _) = broadcast::channel(BUFFER_SIZE);
 
         Self {
             subscribers: RwLock::new(Default::default()),
@@ -84,7 +86,7 @@ impl Broker {
 
                     let map = self.state.subscribers.write().await;
 
-                    match map.get(&e.id) {
+                    let _ = match map.get(&e.id) {
                         Some(sender) => sender.send(e).await,
                         None => Ok(()),
                     };
@@ -107,7 +109,7 @@ impl Broker {
 
                         let map = self.state.subscribers.write().await;
 
-                        match map.get(&e.id) {
+                        let _ = match map.get(&e.id) {
                             Some(sender) => sender.send(e).await,
                             None => Ok(()),
                         };
@@ -120,7 +122,7 @@ impl Broker {
     }
 
     pub fn subscribe(&self, id: String) -> Receiver<Event> {
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(BUFFER_SIZE);
 
         self.state.sub_ch.send(Sub { id, sender: tx }).unwrap();
 
