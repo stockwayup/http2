@@ -19,13 +19,13 @@ impl fmt::Display for ConfError {
 #[derive(Deserialize)]
 pub struct Conf {
     pub listen_port: u16,
-    pub rmq: RMQ,
+    pub rmq: RmqConf,
     pub allowed_origins: Vec<String>,
     pub is_debug: bool,
 }
 
 #[derive(Deserialize, Clone)]
-pub struct RMQ {
+pub struct RmqConf {
     pub host: String,
     pub port: String,
     pub user: String,

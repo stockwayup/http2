@@ -13,7 +13,7 @@ use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, Duration};
 
 use crate::broker::Event;
-use crate::conf::RMQ;
+use crate::conf::RmqConf;
 use crate::{Broker, Rmq};
 
 const PREFETCH_COUNT: ShortUInt = 1;
@@ -21,11 +21,11 @@ const PREFETCH_COUNT: ShortUInt = 1;
 pub struct Subscriber {
     rmq: Arc<RwLock<Rmq>>,
     broker: Arc<Broker>,
-    conf: RMQ,
+    conf: RmqConf,
 }
 
 impl Subscriber {
-    pub fn new(rmq: Arc<RwLock<Rmq>>, broker: Arc<Broker>, conf: RMQ) -> Self {
+    pub fn new(rmq: Arc<RwLock<Rmq>>, broker: Arc<Broker>, conf: RmqConf) -> Self {
         Self { rmq, broker, conf }
     }
 

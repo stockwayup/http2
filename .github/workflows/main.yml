@@ -13,11 +13,20 @@ env:
   DO_PUSH: ${{ github.ref == 'refs/heads/main' }}
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Clippy
+        run: cargo clippy
+
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Login to Docker Hub
         if: ${{ env.DO_PUSH == 'true' }}
@@ -37,7 +46,7 @@ jobs:
           context: .
           file: Dockerfile
           push: false
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.13
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.14
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
 
       - name: Build and push
@@ -48,7 +57,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.13
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.14
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-to: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest,mode=max
 

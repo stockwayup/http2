@@ -9,17 +9,17 @@ use lapin::types::FieldTable;
 use lapin::ConnectionProperties;
 use lapin::{Channel, Error};
 
-use crate::conf::RMQ;
+use crate::conf::RmqConf;
 
 pub type Connection = Object<Manager>;
 
 pub struct Rmq {
     pool: Pool,
-    conf: RMQ,
+    conf: RmqConf,
 }
 
 impl Rmq {
-    pub async fn new(pool: Pool, conf: RMQ) -> Self {
+    pub async fn new(pool: Pool, conf: RmqConf) -> Self {
         Self { pool, conf }
     }
 
@@ -59,7 +59,7 @@ impl Rmq {
     }
 }
 
-pub async fn setup_rmq(conf: RMQ) -> Rmq {
+pub async fn setup_rmq(conf: RmqConf) -> Rmq {
     let addr = format!(
         "amqp://{}:{}@{}:{}/%2f",
         conf.user, conf.password, conf.host, conf.port
