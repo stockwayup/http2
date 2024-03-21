@@ -70,6 +70,7 @@ pub async fn not_found() -> impl IntoResponse {
     resp
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn proxy(
     OriginalUri(uri): OriginalUri,
     matched_path: MatchedPath,
