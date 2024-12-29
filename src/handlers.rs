@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use std::time::Instant;
 
 use super::events::HttpReq;
 use super::responses::statuses::{Attributes, Statuses, StatusesData};
@@ -60,6 +61,7 @@ pub async fn proxy(
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
     Extension(nats): Extension<Arc<RwLock<Client>>>,
 ) -> impl IntoResponse {
+    let start_time = Instant::now();
     let id = Uuid::new_v4();
 
     log::info!("request received", {id: id.to_string().as_str(), path: matched_path.clone().as_str()});
@@ -106,10 +108,13 @@ pub async fn proxy(
         }
     };
 
+    let elapsed_time = start_time.elapsed();
+
     log::info!("request processed", {
         id: id.to_string().as_str(),
         path: matched_path.clone().as_str(),
         code: status_code.as_str(),
+        elapsed_time: format!("{:?}", elapsed_time).as_str(),
     });
 
     resp
