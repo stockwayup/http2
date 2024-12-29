@@ -18,6 +18,8 @@ use tokio::{sync::RwLock, time};
 use crate::broker::{Broker, Event};
 use crate::publisher::Publisher;
 use crate::responses::errors::{Error, Errors};
+use std::time::Instant;
+use uuid::Uuid;
 
 use super::events::HttpReq;
 use super::responses::statuses::{Attributes, Statuses, StatusesData};
@@ -82,6 +84,8 @@ pub async fn proxy(
     Extension(pub_svc): Extension<Arc<RwLock<Publisher>>>,
     Extension(broker): Extension<Arc<Broker>>,
 ) -> impl IntoResponse {
+    let start_time = Instant::now();
+    let req_id = Uuid::new_v4();
     let req = HttpReq::new(
         uri,
         matched_path.clone(),
@@ -94,6 +98,11 @@ pub async fn proxy(
         query_args,
         &body,
     );
+
+    log::info!("request received", {
+        id: req_id.to_string().as_str(),
+        path: matched_path.clone().as_str(),
+    });
 
     let mut publ = pub_svc.write().await;
 
@@ -108,8 +117,6 @@ pub async fn proxy(
 
     drop(publ);
 
-    log::info!("request published", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
-
     let mut ch = broker.subscribe(id.clone());
 
     tokio::select! {
@@ -117,13 +124,20 @@ pub async fn proxy(
             broker.unsubscribe(id.clone());
 
             let e = event.unwrap();
+            let response = get_200(e.clone()).into_response();
+            let elapsed_time = start_time.elapsed();
 
-            log::info!("response received", {id: id.clone().as_str(), path: matched_path.clone().as_str(), code: e.code.as_str()});
+            log::info!("request processed", {
+                id: req_id.to_string().as_str(),
+                path: matched_path.clone().as_str(),
+                code: e.code.as_str(),
+                elapsed_time: format!("{:?}", elapsed_time).as_str(),
+            });
 
-            get_200(e).into_response()
+            response
         }
         _ = time::sleep(time::Duration::from_secs(TIMEOUT)) => {
-            log::error!("request timeout", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
+            log::error!("request timeout", {id: req_id.to_string().as_str(), path: matched_path.clone().as_str()});
 
             broker.unsubscribe(id.clone());
 

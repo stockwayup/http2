@@ -46,7 +46,7 @@ jobs:
           context: .
           file: Dockerfile
           push: false
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.15
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.16
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
 
       - name: Build and push
@@ -57,7 +57,7 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.15
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.0.16
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-to: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest,mode=max
 
