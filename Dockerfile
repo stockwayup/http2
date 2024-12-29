@@ -1,4 +1,4 @@
-FROM rust:1.78-alpine3.18 as builder
+FROM rust:1.83.0-alpine3.21 AS builder
 
 RUN apk add --no-cache musl-dev
 
@@ -8,7 +8,7 @@ WORKDIR /tmp/rust/src/github.com/stockwayup/http2
 
 RUN cargo build --release
 
-FROM alpine:3.20
+FROM alpine:3.21
 
 RUN adduser -S www-data -G www-data
 
