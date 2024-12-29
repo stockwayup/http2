@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use crate::responses::errors::{Error, Errors};
+use async_nats::{Client, HeaderMap};
 use axum::extract::{MatchedPath, OriginalUri, Path, Query};
 use axum::headers::{
     authorization::{Authorization, Bearer},
@@ -12,17 +11,17 @@ use axum::{body::Bytes, Extension, Json, TypedHeader};
 use http_body::Full;
 use kv_log_macro as log;
 use serde::Serialize;
-use serde_json::Serializer;
-use tokio::{sync::RwLock, time};
-
-use crate::broker::{Broker, Event};
-use crate::publisher::Publisher;
-use crate::responses::errors::{Error, Errors};
+use rmp_serde::Serializer;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use uuid::Uuid;
+use std::time::Instant;
 
 use super::events::HttpReq;
 use super::responses::statuses::{Attributes, Statuses, StatusesData};
 
-const TIMEOUT: u64 = 30;
+const SUBJECT: &str = "http";
 const JSON_API_TYPE: &str = "application/vnd.api+json";
 
 pub async fn health_check() -> impl IntoResponse {
@@ -37,37 +36,18 @@ pub async fn health_check() -> impl IntoResponse {
     };
 
     let mut resp = (StatusCode::OK, Json(statuses)).into_response();
-
     resp.headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
-
     resp
 }
 
 pub async fn not_found() -> impl IntoResponse {
-    let errors = Errors {
-        errors: vec![Error {
-            code: "404".to_string(),
-            title: "Not found".to_string(),
-            detail: "The requested resource could not be found.".to_string(),
-        }],
-    };
-
-    let mut buf = Vec::new();
-
-    let mut se = Serializer::new(&mut buf);
-
-    errors.serialize(&mut se).expect("serialize error");
-
-    let mut resp = Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(http_body::Full::from(buf))
-        .expect("response builder error");
-
-    resp.headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
-
-    resp
+    create_error_response(
+        StatusCode::NOT_FOUND,
+        "404",
+        "Not found",
+        "The requested resource could not be found.",
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -79,119 +59,102 @@ pub async fn proxy(
     Path(user_values): Path<HashMap<String, String>>,
     Query(query_args): Query<HashMap<String, String>>,
     authorization: Option<TypedHeader<Authorization<Bearer>>>,
-    Extension(pub_svc): Extension<Arc<RwLock<Publisher>>>,
-    Extension(broker): Extension<Arc<Broker>>,
+    Extension(nats): Extension<Arc<RwLock<Client>>>,
 ) -> impl IntoResponse {
+    let start_time = Instant::now();
+    let id = Uuid::new_v4();
+
+    log::info!("request received", {id: id.to_string().as_str(), path: matched_path.clone().as_str()});
+
     let req = HttpReq::new(
         uri,
         matched_path.clone(),
         method.to_string(),
-        match authorization {
-            None => "".to_string(),
-            Some(val) => val.token().to_string(),
-        },
+        authorization.map_or_else(|| "".to_string(), |val| val.token().to_string()),
         user_values,
         query_args,
         &body,
     );
 
-    let mut publ = pub_svc.write().await;
+    let mut headers = HeaderMap::new();
+    headers.insert("id", id.to_string());
 
-    let id = match publ.publish(req).await {
-        Ok(id) => id,
+    let client = nats.read().await;
+
+    let mut buf = Vec::new();
+
+    let mut se = Serializer::new(&mut buf).with_struct_map();
+
+    req.serialize(&mut se).unwrap();
+
+    let status_code: String;
+
+    let resp = match client
+        .request_with_headers(SUBJECT, headers, Bytes::from(buf))
+        .await
+    {
+        Ok(response) => {
+            let headers = response.headers.unwrap();
+            let status_value = headers.get("code").cloned().unwrap_or_else(|| async_nats::HeaderValue::from("500"));
+
+            status_code = StatusCode::from_bytes(status_value.to_string().as_bytes()).unwrap().to_string();
+            create_response(StatusCode::from_bytes(status_value.to_string().as_bytes()).unwrap(), response.payload.to_vec()).into_response()
+        }
         Err(e) => {
-            log::error!("publish request event error: {}", e);
-
-            return get_500_error().into_response();
+            status_code = StatusCode::REQUEST_TIMEOUT.to_string();
+            log::error!("proxy request error: {}", e);
+            create_error_response(StatusCode::REQUEST_TIMEOUT, "408", "Request timeout", "")
+                .into_response()
         }
     };
 
-    drop(publ);
+    let elapsed_time = start_time.elapsed();
 
-    log::info!("request published", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
+    log::info!("request processed", {
+        id: id.to_string().as_str(),
+        path: matched_path.clone().as_str(),
+        code: status_code.as_str(),
+        elapsed_time: format!("{:?}", elapsed_time).as_str(),
+    });
 
-    let mut ch = broker.subscribe(id.clone());
-
-    tokio::select! {
-        event = ch.recv() => {
-            broker.unsubscribe(id.clone());
-
-            let e = event.unwrap();
-
-            log::info!("response received", {id: id.clone().as_str(), path: matched_path.clone().as_str(), code: e.code.as_str()});
-
-            get_200(e).into_response()
-        }
-        _ = time::sleep(time::Duration::from_secs(TIMEOUT)) => {
-            log::error!("request timeout", {id: id.clone().as_str(), path: matched_path.clone().as_str()});
-
-            broker.unsubscribe(id.clone());
-
-            get_408_error().into_response()
-        }
-    }
+    resp
 }
 
-pub fn get_500_error() -> impl IntoResponse {
+fn create_error_response(
+    status: StatusCode,
+    code: &str,
+    title: &str,
+    detail: &str,
+) -> Response<Full<axum::body::Bytes>> {
     let errors = Errors {
         errors: vec![Error {
-            code: "500".to_string(),
-            title: "Internal server error".to_string(),
-            detail: "".to_string(),
+            code: code.to_string(),
+            title: title.to_string(),
+            detail: detail.to_string(),
         }],
     };
 
     let mut buf = Vec::new();
-
     let mut se = Serializer::new(&mut buf);
-
     errors.serialize(&mut se).unwrap();
 
-    let mut resp: Response<Full<axum::body::Bytes>> = Response::builder()
-        .status(StatusCode::INTERNAL_SERVER_ERROR)
+    let mut resp = Response::builder()
+        .status(status)
         .body(http_body::Full::from(buf))
         .unwrap();
 
     resp.headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
-
     resp
 }
 
-pub fn get_408_error() -> impl IntoResponse {
-    let errors = Errors {
-        errors: vec![Error {
-            code: "408".to_string(),
-            title: "Request timeout".to_string(),
-            detail: "The server timed out waiting for the request.".to_string(),
-        }],
-    };
-
-    let mut buf = Vec::new();
-
-    let mut se = Serializer::new(&mut buf);
-
-    errors.serialize(&mut se).unwrap();
-
+fn create_response(status: StatusCode, data: Vec<u8>) -> Response<Full<axum::body::Bytes>> {
     let mut resp = Response::builder()
-        .status(StatusCode::REQUEST_TIMEOUT)
-        .body(http_body::Full::from(buf))
+        .status(status)
+        .body(http_body::Full::from(data))
         .unwrap();
 
     resp.headers_mut()
         .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
-
-    resp
-}
-
-pub fn get_200(e: Event) -> impl IntoResponse {
-    let mut resp = Response::builder()
-        .status(StatusCode::from_u16(e.code.parse::<u16>().unwrap()).unwrap())
-        .body(http_body::Full::from(e.data))
-        .unwrap();
-
-    resp.headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
-
     resp
 }
