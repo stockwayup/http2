@@ -1,8 +1,16 @@
 [package]
 name = "http2"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 publish = false
+
+[[bin]]
+name = "http2"
+path = "src/main.rs"
+
+[lib]
+name = "http2"
+path = "src/lib.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -23,15 +31,17 @@ futures = "^0.3"
 libc = "^0.2"
 http-body = "^0.4"
 async-nats = "0.38.0"
-rmp-serde= "^1.1"
+rmp-serde = "^1.1"
 
 [dependencies.uuid]
 version = "^1.1"
-features = [
-    "v4",
-    "fast-rng",
-    "macro-diagnostics",
-]
+features = ["v4", "fast-rng", "macro-diagnostics"]
 
 [dependencies.rmp]
 version = "^0.8"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+serde_json = "1.0"
+tower = { version = "0.4", features = ["util"] }

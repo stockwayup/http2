@@ -82,3 +82,70 @@ impl<'a> HttpReq<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_http_req_serialization() {
+        // Test basic structure serialization without using MatchedPath constructor
+        let mut args = HashMap::new();
+        args.insert("key".to_string(), "value".as_bytes().to_vec().into());
+
+        let uri_struct = Uri {
+            path_original: "http://localhost:8000/api/v1/test".as_bytes().to_vec(),
+            scheme: "http".as_bytes().to_vec(),
+            path: "/api/v1/test".as_bytes().to_vec(),
+            query_string: "".as_bytes().to_vec(),
+            hash: &[],
+            host: "localhost:8000".as_bytes().to_vec(),
+            args: Args { val: args },
+        };
+
+        let http_req = HttpReq {
+            r#type: "/api/v1/test".to_string(),
+            access_token: "Bearer token".to_string(),
+            method: "POST".to_string(),
+            user_values: HashMap::new(),
+            uri: uri_struct,
+            body: b"test data",
+        };
+
+        // Test that we can serialize the HttpReq struct
+        let serialized = rmp_serde::to_vec(&http_req);
+        assert!(serialized.is_ok());
+        assert!(!serialized.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_args_struct() {
+        let mut args = HashMap::new();
+        args.insert("param1".to_string(), "value1".as_bytes().to_vec().into());
+        args.insert("param2".to_string(), "value2".as_bytes().to_vec().into());
+
+        let args_struct = Args { val: args };
+
+        // Test serialization of Args struct
+        let serialized = rmp_serde::to_vec(&args_struct);
+        assert!(serialized.is_ok());
+    }
+
+    #[test]
+    fn test_uri_struct_creation() {
+        let uri_struct = Uri {
+            path_original: "/test/path".as_bytes().to_vec(),
+            scheme: "https".as_bytes().to_vec(),
+            path: "/test".as_bytes().to_vec(),
+            query_string: "param=value".as_bytes().to_vec(),
+            hash: &[],
+            host: "example.com".as_bytes().to_vec(),
+            args: Args { val: HashMap::new() },
+        };
+
+        assert_eq!(uri_struct.scheme, b"https");
+        assert_eq!(uri_struct.host, b"example.com");
+        assert_eq!(uri_struct.path, b"/test");
+    }
+}
