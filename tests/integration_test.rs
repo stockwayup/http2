@@ -1,6 +1,6 @@
+use async_nats::Client;
 use axum::body::Body;
 use axum::http::{header, Method, Request, StatusCode};
-use async_nats::Client;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower::ServiceExt;
@@ -12,26 +12,26 @@ use http2::routes::build_routes;
 async fn test_full_application_health_check() {
     // Test the complete flow for health check endpoint
     let allowed_origins = vec!["http://localhost:3000".to_string()];
-    
+
     // Create a mock NATS client (simplified for testing)
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, mock_client);
+        let app = build_routes(allowed_origins, true, mock_client, None);
 
-    let request = Request::builder()
-        .uri("/api/v1/statuses")
-        .method(Method::GET)
-        .header(header::ACCEPT, "application/vnd.api+json")
-        .body(Body::empty())
-        .unwrap();
+        let request = Request::builder()
+            .uri("/api/v1/statuses")
+            .method(Method::GET)
+            .header(header::ACCEPT, "application/vnd.api+json")
+            .body(Body::empty())
+            .unwrap();
 
-    let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.unwrap();
 
-    // Verify status code
-    assert_eq!(response.status(), StatusCode::OK);
+        // Verify status code
+        assert_eq!(response.status(), StatusCode::OK);
 
-    // Verify content type
-    let content_type = response.headers().get(header::CONTENT_TYPE).unwrap();
-    assert_eq!(content_type, "application/vnd.api+json");
+        // Verify content type
+        let content_type = response.headers().get(header::CONTENT_TYPE).unwrap();
+        assert_eq!(content_type, "application/vnd.api+json");
 
         // Verify basic response structure (simplified test)
         assert!(true); // Test that we get a valid response
@@ -45,6 +45,7 @@ async fn test_configuration_integration() {
     // Test that configuration structures work properly
     let test_conf = Conf {
         listen_port: 8080,
+        enable_cors: true,
         nats: NatsConf {
             host: "nats://localhost:4222".to_string(),
         },
@@ -57,7 +58,7 @@ async fn test_configuration_integration() {
 
     // Test that we can build routes with the configuration
     if let Some(mock_client) = create_test_nats_client().await {
-        let _router = build_routes(test_conf.allowed_origins, mock_client);
+        let _router = build_routes(test_conf.allowed_origins, test_conf.enable_cors, mock_client, None);
 
         // Verify the router was created successfully
         assert!(true); // In real tests, you'd verify specific routing behavior
@@ -71,22 +72,22 @@ async fn test_error_response_format() {
     // Test that error responses follow JSON API specification
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, mock_client);
+        let app = build_routes(allowed_origins, true, mock_client, None);
 
-    let request = Request::builder()
-        .uri("/nonexistent/endpoint")
-        .method(Method::GET)
-        .body(Body::empty())
-        .unwrap();
+        let request = Request::builder()
+            .uri("/nonexistent/endpoint")
+            .method(Method::GET)
+            .body(Body::empty())
+            .unwrap();
 
-    let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.unwrap();
 
-    // Verify status code
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        // Verify status code
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    // Verify content type
-    let content_type = response.headers().get(header::CONTENT_TYPE).unwrap();
-    assert_eq!(content_type, "application/vnd.api+json");
+        // Verify content type
+        let content_type = response.headers().get(header::CONTENT_TYPE).unwrap();
+        assert_eq!(content_type, "application/vnd.api+json");
 
         // Verify error response structure (simplified test)
         assert!(true); // Test that we get a valid error response
@@ -103,27 +104,36 @@ async fn test_cors_functionality() {
         "https://example.com".to_string(),
     ];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, mock_client);
+        let app = build_routes(allowed_origins, true, mock_client, None);
 
-    // Test preflight request
-    let request = Request::builder()
-        .uri("/api/v1/statuses")
-        .method(Method::OPTIONS)
-        .header(header::ORIGIN, "http://localhost:3000")
-        .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
-        .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization")
-        .body(Body::empty())
-        .unwrap();
+        // Test preflight request
+        let request = Request::builder()
+            .uri("/api/v1/statuses")
+            .method(Method::OPTIONS)
+            .header(header::ORIGIN, "http://localhost:3000")
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization")
+            .body(Body::empty())
+            .unwrap();
 
-    let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.unwrap();
 
-    // Preflight should succeed
-    assert_eq!(response.status(), StatusCode::OK);
+        // Preflight should succeed
+        assert_eq!(response.status(), StatusCode::OK);
 
-    // Verify CORS headers
-        assert!(response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_some());
-        assert!(response.headers().get(header::ACCESS_CONTROL_ALLOW_METHODS).is_some());
-        assert!(response.headers().get(header::ACCESS_CONTROL_ALLOW_HEADERS).is_some());
+        // Verify CORS headers
+        assert!(response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_some());
+        assert!(response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_METHODS)
+            .is_some());
+        assert!(response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .is_some());
     } else {
         println!("Skipping test: NATS server not available");
     }
@@ -134,24 +144,24 @@ async fn test_request_with_authorization() {
     // Test request handling with authorization header
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, mock_client);
+        let app = build_routes(allowed_origins, true, mock_client, None);
 
-    let request = Request::builder()
-        .uri("/api/v1/portfolios")
-        .method(Method::GET)
-        .header(header::AUTHORIZATION, "Bearer test-token-123")
-        .header(header::CONTENT_TYPE, "application/vnd.api+json")
-        .body(Body::empty())
-        .unwrap();
+        let request = Request::builder()
+            .uri("/api/v1/portfolios")
+            .method(Method::GET)
+            .header(header::AUTHORIZATION, "Bearer test-token-123")
+            .header(header::CONTENT_TYPE, "application/vnd.api+json")
+            .body(Body::empty())
+            .unwrap();
 
-    let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.unwrap();
 
-    // Should not return Unauthorized just for having auth header
-    // Note: Without proper NATS backend, this will likely return a different error
-    assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
-    
-    // Verify content type is set correctly
-    let content_type = response.headers().get(header::CONTENT_TYPE);
+        // Should not return Unauthorized just for having auth header
+        // Note: Without proper NATS backend, this will likely return a different error
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+
+        // Verify content type is set correctly
+        let content_type = response.headers().get(header::CONTENT_TYPE);
         if let Some(ct) = content_type {
             assert_eq!(ct, "application/vnd.api+json");
         }
@@ -165,7 +175,7 @@ async fn test_json_api_content_type() {
     // Test that all responses have correct JSON API content type
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, mock_client);
+        let app = build_routes(allowed_origins, true, mock_client, None);
 
         // Test one endpoint to verify JSON API content type
         let request = Request::builder()
@@ -175,7 +185,7 @@ async fn test_json_api_content_type() {
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
-        
+
         let content_type = response.headers().get(header::CONTENT_TYPE).unwrap();
         assert_eq!(content_type, "application/vnd.api+json");
     } else {
@@ -188,19 +198,19 @@ async fn test_body_size_enforcement() {
     // Test that request body size limits are enforced
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, mock_client);
+        let app = build_routes(allowed_origins, true, mock_client, None);
 
-    // Create a body that exceeds the 250KB limit
-    let oversized_body = "x".repeat(1024 * 260); // 260KB
+        // Create a body that exceeds the 250KB limit
+        let oversized_body = "x".repeat(1024 * 260); // 260KB
 
-    let request = Request::builder()
-        .uri("/api/v1/portfolios")
-        .method(Method::POST)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(oversized_body))
-        .unwrap();
+        let request = Request::builder()
+            .uri("/api/v1/portfolios")
+            .method(Method::POST)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(oversized_body))
+            .unwrap();
 
-    let response = app.oneshot(request).await.unwrap();
+        let response = app.oneshot(request).await.unwrap();
 
         // Should return 413 Payload Too Large
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);

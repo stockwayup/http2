@@ -21,7 +21,7 @@ kv-log-macro = "^1.0"
 tokio = { version = "^1", features = ["full"] }
 axum = { version = "^0.5", features = ["headers", "http2"] }
 tower = { version = "^0.4", features = ["make"] }
-tower-http = { version = "^0.3", features = ["cors", "limit"] }
+tower-http = { version = "^0.3", features = ["cors", "limit", "trace"] }
 serde = { version = "^1.0", features = ["derive"] }
 serde_derive = "^1.0"
 serde_bytes = "^0.11"
@@ -32,6 +32,18 @@ libc = "^0.2"
 http-body = "^0.4"
 async-nats = "0.38.0"
 rmp-serde = "^1.1"
+
+# OpenTelemetry dependencies for distributed tracing
+opentelemetry = "0.27"
+opentelemetry-otlp = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+tracing = "0.1"
+tracing-opentelemetry = "0.28"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Prometheus metrics dependencies
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
 
 [dependencies.uuid]
 version = "^1.1"

@@ -58,9 +58,7 @@ mod tests {
 
     #[test]
     fn test_empty_errors_collection() {
-        let errors = Errors {
-            errors: vec![],
-        };
+        let errors = Errors { errors: vec![] };
 
         let json = serde_json::to_string(&errors).expect("Should serialize empty errors");
         assert_eq!(json, "{\"errors\":[]}");

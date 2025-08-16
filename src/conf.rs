@@ -19,6 +19,7 @@ impl fmt::Display for ConfError {
 #[derive(Debug, Deserialize)]
 pub struct Conf {
     pub listen_port: u16,
+    pub enable_cors: bool,
     pub nats: NatsConf,
     pub allowed_origins: Vec<String>,
     pub is_debug: bool,
@@ -64,6 +65,7 @@ mod tests {
         // Test configuration structure creation directly
         let test_conf = Conf {
             listen_port: 8080,
+            enable_cors: true,
             nats: NatsConf {
                 host: "localhost:4222".to_string(),
             },
@@ -77,11 +79,12 @@ mod tests {
         assert!(test_conf.is_debug);
     }
 
-    #[test]  
+    #[test]
     fn test_json_deserialization() {
         // Test valid JSON parsing
         let config_json = r#"{
             "listen_port": 8080,
+            "enable_cors": true,
             "nats": {
                 "host": "localhost:4222"
             },
@@ -128,7 +131,7 @@ mod tests {
         let error = ConfError {
             message: "Test error message".to_string(),
         };
-        
+
         assert_eq!(format!("{}", error), "ConfError: Test error message");
     }
 
@@ -138,7 +141,7 @@ mod tests {
             host: "test.host:4222".to_string(),
         };
         let cloned = nats_conf.clone();
-        
+
         assert_eq!(nats_conf.host, cloned.host);
     }
 }

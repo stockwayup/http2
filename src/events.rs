@@ -67,9 +67,12 @@ impl<'a> HttpReq<'a> {
                     Some(s) => s.as_str().to_string().into_bytes(),
                 },
                 path: uri.path().to_string().into_bytes(),
-                query_string: match uri.path_and_query().unwrap().query() {
+                query_string: match uri.path_and_query() {
                     None => "".to_string().into_bytes(),
-                    Some(q) => q.to_string().into_bytes(),
+                    Some(path_and_query) => match path_and_query.query() {
+                        None => "".to_string().into_bytes(),
+                        Some(q) => q.to_string().into_bytes(),
+                    },
                 },
                 hash: &[],
                 host: match uri.host() {
@@ -116,7 +119,8 @@ mod tests {
         // Test that we can serialize the HttpReq struct
         let serialized = rmp_serde::to_vec(&http_req);
         assert!(serialized.is_ok());
-        assert!(!serialized.unwrap().is_empty());
+        let serialized_data = serialized.expect("serialization should succeed in test");
+        assert!(!serialized_data.is_empty());
     }
 
     #[test]
@@ -141,7 +145,9 @@ mod tests {
             query_string: "param=value".as_bytes().to_vec(),
             hash: &[],
             host: "example.com".as_bytes().to_vec(),
-            args: Args { val: HashMap::new() },
+            args: Args {
+                val: HashMap::new(),
+            },
         };
 
         assert_eq!(uri_struct.scheme, b"https");

@@ -80,7 +80,8 @@ mod tests {
             },
         };
 
-        let json = serde_json::to_string(&statuses).expect("Should serialize statuses with empty strings");
+        let json =
+            serde_json::to_string(&statuses).expect("Should serialize statuses with empty strings");
         assert!(json.contains("\"id\":\"\""));
         assert!(json.contains("\"type\":\"\""));
         assert!(json.contains("\"name\":\"\""));
