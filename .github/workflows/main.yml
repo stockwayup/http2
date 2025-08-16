@@ -22,7 +22,35 @@ jobs:
       - name: Run Clippy
         run: cargo clippy
 
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo target
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: make test
+
   build:
+    needs: [lint, test]
     runs-on: ubuntu-latest
 
     steps:
@@ -46,7 +74,7 @@ jobs:
           context: .
           file: Dockerfile
           push: false
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.1.0
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.1.1
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
 
       - name: Build and push
@@ -57,8 +85,6 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.1.0
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.1.1
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-to: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest,mode=max
-
-

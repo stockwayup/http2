@@ -2,33 +2,40 @@
 #![forbid(unsafe_code)]
 
 use futures::SinkExt;
-use json_env_logger2::builder;
-use json_env_logger2::env_logger::Target;
-use log::{warn, LevelFilter};
+use log::warn;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::conf::Conf;
+use crate::observability::{init_observability, shutdown_observability};
 use crate::routes::build_routes;
 use crate::signals::listen_signals;
 
 mod conf;
 mod events;
 mod handlers;
+mod metrics;
+mod observability;
 mod responses;
 mod routes;
 mod signals;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    json_env_logger2::panic_hook();
+    // Removed json_env_logger2::panic_hook() to avoid logger conflicts
+    // Panic handling is now done by tracing_subscriber
 
-    let mut builder = builder();
-
-    builder.target(Target::Stdout);
-    builder.filter_level(LevelFilter::Debug);
-    builder.try_init().unwrap();
+    // Initialize observability (tracing and metrics) - this replaces json_env_logger2
+    let metrics = match init_observability() {
+        Ok(metrics) => Some(metrics),
+        Err(e) => {
+            // Use println! for early error logging since tracing may not be initialized
+            println!("ERROR: Failed to initialize observability: {}", e);
+            eprintln!("ERROR: Failed to initialize observability: {}", e);
+            None
+        }
+    };
 
     let conf = match Conf::new() {
         Ok(conf) => conf,
@@ -39,8 +46,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    if !conf.is_debug {
-        log::set_max_level(LevelFilter::Info);
+    // Log level is now controlled by tracing_subscriber in init_observability()
+    if conf.is_debug {
+        println!("DEBUG: Debug mode enabled");
     }
 
     let nats_client = Arc::new(RwLock::new(
@@ -51,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?,
     ));
 
-    let routes = build_routes(conf.allowed_origins, nats_client.clone());
+    let routes = build_routes(conf.allowed_origins, conf.enable_cors, nats_client.clone(), metrics.clone());
 
     let notify = listen_signals();
 
@@ -75,6 +83,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     nats_client.write().await.close().await?;
+
+    // Shutdown observability
+    shutdown_observability();
 
     Ok(())
 }
