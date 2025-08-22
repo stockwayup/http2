@@ -1,6 +1,7 @@
 #![deny(warnings)]
 #![forbid(unsafe_code)]
 
+pub mod client_ip;
 pub mod conf;
 pub mod events;
 pub mod handlers;

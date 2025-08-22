@@ -5,6 +5,20 @@ use axum::http;
 use serde::Serialize;
 use serde_bytes_wrapper::Bytes;
 
+#[derive(Debug)]
+pub struct HttpRequestInfo {
+    pub uri: http::Uri,
+    pub method: String,
+    pub matched_path: MatchedPath,
+}
+
+#[derive(Debug)]
+pub struct RequestContext {
+    pub client_ip: String,
+    pub authorization: String,
+    pub user_values: HashMap<String, String>,
+}
+
 #[derive(Serialize)]
 pub struct HttpReq<'a> {
     pub r#type: String,
@@ -14,6 +28,7 @@ pub struct HttpReq<'a> {
     pub uri: Uri<'a>,
     #[serde(with = "serde_bytes")]
     pub body: &'a [u8],
+    pub client_ip: String,
 }
 
 #[derive(Serialize)]
@@ -41,11 +56,8 @@ pub struct Args {
 
 impl<'a> HttpReq<'a> {
     pub fn new(
-        uri: http::Uri,
-        matched_path: MatchedPath,
-        method: String,
-        authorization: String,
-        user_values: HashMap<String, String>,
+        http_info: HttpRequestInfo,
+        context: RequestContext,
         query_args: HashMap<String, String>,
         body: &'a [u8],
     ) -> HttpReq<'a> {
@@ -56,18 +68,18 @@ impl<'a> HttpReq<'a> {
         }
 
         HttpReq {
-            r#type: matched_path.as_str().to_string(),
-            access_token: authorization,
-            method,
-            user_values,
+            r#type: http_info.matched_path.as_str().to_string(),
+            access_token: context.authorization,
+            method: http_info.method,
+            user_values: context.user_values,
             uri: Uri {
-                path_original: uri.to_string().into_bytes(),
-                scheme: match uri.scheme() {
+                path_original: http_info.uri.to_string().into_bytes(),
+                scheme: match http_info.uri.scheme() {
                     None => "".to_string().into_bytes(),
                     Some(s) => s.as_str().to_string().into_bytes(),
                 },
-                path: uri.path().to_string().into_bytes(),
-                query_string: match uri.path_and_query() {
+                path: http_info.uri.path().to_string().into_bytes(),
+                query_string: match http_info.uri.path_and_query() {
                     None => "".to_string().into_bytes(),
                     Some(path_and_query) => match path_and_query.query() {
                         None => "".to_string().into_bytes(),
@@ -75,13 +87,14 @@ impl<'a> HttpReq<'a> {
                     },
                 },
                 hash: &[],
-                host: match uri.host() {
+                host: match http_info.uri.host() {
                     None => "".to_string().into_bytes(),
                     Some(h) => h.to_string().into_bytes(),
                 },
                 args: Args { val: args },
             },
             body,
+            client_ip: context.client_ip,
         }
     }
 }
@@ -114,6 +127,7 @@ mod tests {
             user_values: HashMap::new(),
             uri: uri_struct,
             body: b"test data",
+            client_ip: "192.168.1.1".to_string(),
         };
 
         // Test that we can serialize the HttpReq struct

@@ -1,3 +1,5 @@
+VERSION = 0.1.3
+
 .PHONY: help fmt lint test test-verbose check build
 
 help:
@@ -25,5 +27,8 @@ check:
 	cargo check
 
 build:
-	docker build . -t soulgarden/swup:http2-0.1.1 --platform linux/amd64
-	docker push soulgarden/swup:http2-0.1.1
+	docker build . -t soulgarden/swup:http2-$(VERSION) -t soulgarden/swup:http2-latest --platform linux/amd64
+
+push:
+	docker push soulgarden/swup:http2-$(VERSION)
+	docker push soulgarden/swup:http2-latest

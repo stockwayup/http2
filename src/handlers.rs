@@ -1,3 +1,4 @@
+use crate::client_ip::extract_client_ip;
 use crate::metrics::AppMetrics;
 use crate::responses::errors::{Error, Errors};
 use async_nats::{Client, HeaderMap};
@@ -6,7 +7,7 @@ use axum::headers::{
     authorization::{Authorization, Bearer},
     HeaderValue,
 };
-use axum::http::{header::CONTENT_TYPE, Method, Response, StatusCode};
+use axum::http::{header::CONTENT_TYPE, HeaderMap as HttpHeaderMap, Method, Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::{body::Bytes, Extension, Json, TypedHeader};
 use http_body::Full;
@@ -16,10 +17,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{error, info, instrument, Span};
+use tracing::{debug, error, info, instrument, Span};
 use uuid::Uuid;
 
-use super::events::HttpReq;
+use super::events::{HttpReq, HttpRequestInfo, RequestContext};
 use super::responses::statuses::{Attributes, Statuses, StatusesData};
 
 const SUBJECT: &str = "http";
@@ -97,6 +98,7 @@ pub async fn proxy(
     OriginalUri(uri): OriginalUri,
     matched_path: MatchedPath,
     method: Method,
+    headers: HttpHeaderMap,
     body: Bytes,
     Path(user_values): Path<HashMap<String, String>>,
     Query(query_args): Query<HashMap<String, String>>,
@@ -107,21 +109,29 @@ pub async fn proxy(
     let start_time = Instant::now();
     let id = Uuid::new_v4();
 
+    // Extract client IP from headers
+    let client_ip = extract_client_ip(&headers);
+    debug!(client_ip = client_ip.as_str(), "extracted client IP");
+
     // Add span attributes
     let span = Span::current();
     span.record("request.id", id.to_string().as_str());
     span.record("user.authenticated", authorization.is_some());
+    span.record("client.ip", client_ip.as_str());
 
-
-    let req = HttpReq::new(
+    let http_info = HttpRequestInfo {
         uri,
-        matched_path.clone(),
-        method.to_string(),
-        authorization.map_or_else(|| "".to_string(), |val| val.token().to_string()),
+        method: method.to_string(),
+        matched_path: matched_path.clone(),
+    };
+
+    let context = RequestContext {
+        client_ip,
+        authorization: authorization.map_or_else(|| "".to_string(), |val| val.token().to_string()),
         user_values,
-        query_args,
-        &body,
-    );
+    };
+
+    let req = HttpReq::new(http_info, context, query_args, &body);
 
     let mut headers = HeaderMap::new();
     headers.insert("id", id.to_string());

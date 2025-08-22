@@ -12,6 +12,7 @@ use crate::observability::{init_observability, shutdown_observability};
 use crate::routes::build_routes;
 use crate::signals::listen_signals;
 
+mod client_ip;
 mod conf;
 mod events;
 mod handlers;
