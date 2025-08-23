@@ -7,6 +7,7 @@ use tower::ServiceExt;
 
 use http2::conf::{Conf, NatsConf};
 use http2::routes::build_routes;
+use http2::types::{NatsHost, Port, SharedState};
 
 #[tokio::test]
 async fn test_full_application_health_check() {
@@ -15,7 +16,11 @@ async fn test_full_application_health_check() {
 
     // Create a mock NATS client (simplified for testing)
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         let request = Request::builder()
             .uri("/api/v1/statuses")
@@ -44,10 +49,10 @@ async fn test_full_application_health_check() {
 async fn test_configuration_integration() {
     // Test that configuration structures work properly
     let test_conf = Conf {
-        listen_port: 8080,
+        listen_port: Port::new(8080).unwrap(),
         enable_cors: true,
         nats: NatsConf {
-            host: "nats://localhost:4222".to_string(),
+            host: NatsHost::new("localhost:4222".to_string()).unwrap(),
         },
         allowed_origins: vec![
             "http://localhost:3000".to_string(),
@@ -58,7 +63,15 @@ async fn test_configuration_integration() {
 
     // Test that we can build routes with the configuration
     if let Some(mock_client) = create_test_nats_client().await {
-        let _router = build_routes(test_conf.allowed_origins, test_conf.enable_cors, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let _router = build_routes(
+            test_conf.allowed_origins,
+            test_conf.enable_cors,
+            shared_state,
+        );
 
         // Verify the router was created successfully
         assert!(true); // In real tests, you'd verify specific routing behavior
@@ -72,7 +85,11 @@ async fn test_error_response_format() {
     // Test that error responses follow JSON API specification
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         let request = Request::builder()
             .uri("/nonexistent/endpoint")
@@ -104,7 +121,11 @@ async fn test_cors_functionality() {
         "https://example.com".to_string(),
     ];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         // Test preflight request
         let request = Request::builder()
@@ -144,7 +165,11 @@ async fn test_request_with_authorization() {
     // Test request handling with authorization header
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         let request = Request::builder()
             .uri("/api/v1/portfolios")
@@ -175,7 +200,11 @@ async fn test_json_api_content_type() {
     // Test that all responses have correct JSON API content type
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         // Test one endpoint to verify JSON API content type
         let request = Request::builder()
@@ -198,7 +227,11 @@ async fn test_body_size_enforcement() {
     // Test that request body size limits are enforced
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         // Create a body that exceeds the 250KB limit
         let oversized_body = "x".repeat(1024 * 260); // 260KB

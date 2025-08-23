@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 use http2::routes::build_routes;
+use http2::types::SharedState;
 
 // Helper function to create a test NATS client
 // Note: This will skip these tests if NATS is not available
@@ -24,7 +25,11 @@ async fn create_test_nats_client() -> Option<Arc<RwLock<Client>>> {
 async fn test_health_check_route() {
     if let Some(mock_client) = create_test_nats_client().await {
         let allowed_origins = vec!["http://localhost:3000".to_string()];
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         let request = Request::builder()
             .uri("/api/v1/statuses")
@@ -47,7 +52,11 @@ async fn test_health_check_route() {
 async fn test_not_found_route() {
     if let Some(mock_client) = create_test_nats_client().await {
         let allowed_origins = vec!["http://localhost:3000".to_string()];
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         let request = Request::builder()
             .uri("/nonexistent/route")
@@ -70,7 +79,11 @@ async fn test_not_found_route() {
 async fn test_cors_headers() {
     if let Some(mock_client) = create_test_nats_client().await {
         let allowed_origins = vec!["http://localhost:3000".to_string()];
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         let request = Request::builder()
             .uri("/api/v1/statuses")
@@ -99,7 +112,11 @@ async fn test_cors_headers() {
 async fn test_request_body_size_limit() {
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         // Create a body that's larger than the limit (250KB)
         let large_body = "x".repeat(1024 * 300); // 300KB
@@ -125,7 +142,11 @@ async fn test_api_v1_routes_exist() {
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
         // Just verify that build_routes doesn't panic with various route configurations
-        let _router = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let _router = build_routes(allowed_origins, true, shared_state);
 
         // Test that common API routes would be registered
         // In a complete test, you'd verify each route exists and has correct methods
@@ -139,7 +160,11 @@ async fn test_api_v1_routes_exist() {
 async fn test_route_methods() {
     let allowed_origins = vec!["http://localhost:3000".to_string()];
     if let Some(mock_client) = create_test_nats_client().await {
-        let app = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let app = build_routes(allowed_origins, true, shared_state);
 
         // Test that GET is allowed on portfolios route
         let request = Request::builder()
@@ -167,7 +192,11 @@ async fn test_multiple_allowed_origins() {
     ];
 
     if let Some(mock_client) = create_test_nats_client().await {
-        let _router = build_routes(allowed_origins, true, mock_client, None);
+        let shared_state = SharedState {
+            nats: mock_client,
+            metrics: None,
+        };
+        let _router = build_routes(allowed_origins, true, shared_state);
 
         // Verify router builds with multiple origins
         assert!(true); // In real tests, you'd verify CORS behavior for each origin

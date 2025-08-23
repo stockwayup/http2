@@ -1,6 +1,7 @@
 #![deny(warnings)]
 #![forbid(unsafe_code)]
 
+pub mod client_ip;
 pub mod conf;
 pub mod events;
 pub mod handlers;
@@ -9,3 +10,4 @@ pub mod observability;
 pub mod responses;
 pub mod routes;
 pub mod signals;
+pub mod types;
