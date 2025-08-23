@@ -1,17 +1,14 @@
-use async_nats::Client;
 use axum::http::{header, HeaderValue};
 use axum::{
     http::Method,
     routing::{any, delete, get, post},
-    Extension, Router,
+    Router,
 };
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
 use tracing::info_span;
 
 use crate::handlers::*;
-use crate::metrics::AppMetrics;
+use crate::types::SharedState;
 
 const BODY_SIZE: usize = 1024 * 250;
 const API_V1: &str = "/api/v1";
@@ -19,8 +16,7 @@ const API_V1: &str = "/api/v1";
 pub fn build_routes(
     allowed_origins: Vec<String>,
     enable_cors: bool,
-    nats: Arc<RwLock<Client>>,
-    metrics: Option<Arc<AppMetrics>>,
+    shared_state: SharedState,
 ) -> Router {
     let cors_layer = if enable_cors {
         let mut origins: Vec<HeaderValue> = Vec::new();
@@ -48,7 +44,7 @@ pub fn build_routes(
     let mut router = Router::new().route(&format!("{}/statuses", API_V1), get(health_check));
 
     // Add /metrics endpoint if metrics are available
-    if metrics.is_some() {
+    if shared_state.metrics.is_some() {
         router = router.route("/metrics", get(metrics_handler));
     }
 
@@ -148,8 +144,7 @@ pub fn build_routes(
         .route(&format!("{}/sectors", API_V1), get(proxy))
         .route(&format!("{}/industries", API_V1), get(proxy))
         .route(&format!("{}/exchanges", API_V1), get(proxy))
-        .layer(Extension(nats))
-        .layer(Extension(metrics))
+        .with_state(shared_state)
         .layer(RequestBodyLimitLayer::new(BODY_SIZE));
 
     let router = if let Some(cors) = cors_layer {
@@ -160,21 +155,20 @@ pub fn build_routes(
 
     router
         .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(|request: &axum::http::Request<_>| {
-                    let matched_path = request
-                        .extensions()
-                        .get::<axum::extract::MatchedPath>()
-                        .map(|mp| mp.as_str())
-                        .unwrap_or("unknown");
-                    
-                    info_span!(
-                        "http_request",
-                        method = %request.method(),
-                        route = matched_path,
-                        version = ?request.version(),
-                    )
-                }),
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+                let matched_path = request
+                    .extensions()
+                    .get::<axum::extract::MatchedPath>()
+                    .map(|mp| mp.as_str())
+                    .unwrap_or("unknown");
+
+                info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    route = matched_path,
+                    version = ?request.version(),
+                )
+            }),
         )
         .fallback(any(not_found))
 }

@@ -12,6 +12,8 @@ use crate::observability::{init_observability, shutdown_observability};
 use crate::routes::build_routes;
 use crate::signals::listen_signals;
 
+use crate::types::SharedState;
+
 mod client_ip;
 mod conf;
 mod events;
@@ -21,6 +23,7 @@ mod observability;
 mod responses;
 mod routes;
 mod signals;
+mod types;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -56,27 +59,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         async_nats::ConnectOptions::new()
             .ping_interval(std::time::Duration::from_secs(10))
             .request_timeout(Some(std::time::Duration::from_secs(10)))
-            .connect(conf.nats.host)
+            .connect(conf.nats.host.as_str())
             .await?,
     ));
 
-    let routes = build_routes(conf.allowed_origins, conf.enable_cors, nats_client.clone(), metrics.clone());
+    let shared_state = SharedState {
+        nats: nats_client.clone(),
+        metrics: metrics.clone(),
+    };
+    let routes = build_routes(conf.allowed_origins, conf.enable_cors, shared_state);
 
     let notify = listen_signals();
 
     let server_shutdown_notify = notify.clone();
 
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), conf.listen_port);
+    let addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        conf.listen_port.as_u16(),
+    );
 
-    let server = axum::Server::bind(&addr)
-        .serve(routes.into_make_service())
-        .with_graceful_shutdown(async move {
-            server_shutdown_notify.notified().await;
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let server = axum::serve(listener, routes).with_graceful_shutdown(async move {
+        server_shutdown_notify.notified().await;
 
-            log::info!("server received shutdown signal")
-        });
+        log::info!("server received shutdown signal")
+    });
 
-    let result = tokio::try_join!(tokio::task::spawn(server),);
+    let result = server.await;
 
     match result {
         Ok(_) => log::info!("shutdown completed"),

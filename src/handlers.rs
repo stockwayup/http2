@@ -1,27 +1,22 @@
 use crate::client_ip::extract_client_ip;
-use crate::metrics::AppMetrics;
 use crate::responses::errors::{Error, Errors};
-use async_nats::{Client, HeaderMap};
+use async_nats::HeaderMap;
 use axum::extract::{MatchedPath, OriginalUri, Path, Query};
-use axum::headers::{
-    authorization::{Authorization, Bearer},
-    HeaderValue,
-};
 use axum::http::{header::CONTENT_TYPE, HeaderMap as HttpHeaderMap, Method, Response, StatusCode};
 use axum::response::IntoResponse;
-use axum::{body::Bytes, Extension, Json, TypedHeader};
-use http_body::Full;
+use axum::{body::Bytes, extract::State, Json};
+use http::{header::AUTHORIZATION, HeaderValue};
+use http_body_util::Full;
 use rmp_serde::Serializer;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, Span};
 use uuid::Uuid;
 
 use super::events::{HttpReq, HttpRequestInfo, RequestContext};
 use super::responses::statuses::{Attributes, Statuses, StatusesData};
+use crate::types::{AuthToken, HttpMethod};
 
 const SUBJECT: &str = "http";
 const JSON_API_TYPE: &str = "application/vnd.api+json";
@@ -55,8 +50,9 @@ pub async fn not_found() -> impl IntoResponse {
 }
 
 pub async fn metrics_handler(
-    Extension(metrics): Extension<Option<Arc<AppMetrics>>>,
+    State(shared_state): State<crate::types::SharedState>,
 ) -> impl IntoResponse {
+    let metrics = &shared_state.metrics;
     match metrics {
         Some(metrics) => match metrics.render().await {
             Ok(body) => match Response::builder()
@@ -89,7 +85,7 @@ pub async fn metrics_handler(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[instrument(skip(body, nats), fields(
+#[instrument(skip(body), fields(
     http.method = %method,
     http.route = %matched_path.as_str(),
     http.request.body.size = body.len(),
@@ -99,12 +95,10 @@ pub async fn proxy(
     matched_path: MatchedPath,
     method: Method,
     headers: HttpHeaderMap,
-    body: Bytes,
     Path(user_values): Path<HashMap<String, String>>,
     Query(query_args): Query<HashMap<String, String>>,
-    authorization: Option<TypedHeader<Authorization<Bearer>>>,
-    Extension(nats): Extension<Arc<RwLock<Client>>>,
-    Extension(metrics): Extension<Option<Arc<AppMetrics>>>,
+    State(shared_state): State<crate::types::SharedState>,
+    body: Bytes,
 ) -> impl IntoResponse {
     let start_time = Instant::now();
     let id = Uuid::new_v4();
@@ -116,18 +110,24 @@ pub async fn proxy(
     // Add span attributes
     let span = Span::current();
     span.record("request.id", id.to_string().as_str());
-    span.record("user.authenticated", authorization.is_some());
+    let authorization_header = headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    span.record("user.authenticated", authorization_header.is_some());
     span.record("client.ip", client_ip.as_str());
 
     let http_info = HttpRequestInfo {
         uri,
-        method: method.to_string(),
+        method: HttpMethod::from_axum_method(&method),
         matched_path: matched_path.clone(),
     };
 
     let context = RequestContext {
         client_ip,
-        authorization: authorization.map_or_else(|| "".to_string(), |val| val.token().to_string()),
+        authorization: authorization_header
+            .map_or_else(AuthToken::empty, |token| AuthToken::new(token.to_string())),
         user_values,
     };
 
@@ -138,7 +138,7 @@ pub async fn proxy(
 
     // TODO: Add OpenTelemetry context propagation here
 
-    let client = nats.read().await;
+    let client = shared_state.nats.read().await;
 
     let mut buf = Vec::new();
 
@@ -214,7 +214,7 @@ pub async fn proxy(
     span.record("duration_ms", elapsed_time.as_millis() as i64);
 
     // Record metrics if available
-    if let Some(metrics) = metrics {
+    if let Some(metrics) = &shared_state.metrics {
         let route_template = matched_path.as_str();
         let status_num: u16 = status_code.parse().unwrap_or(500);
 
@@ -263,10 +263,7 @@ fn create_error_response(
         buf = fallback_body.into_bytes();
     }
 
-    match Response::builder()
-        .status(status)
-        .body(http_body::Full::from(buf))
-    {
+    match Response::builder().status(status).body(Full::from(buf)) {
         Ok(mut resp) => {
             resp.headers_mut()
                 .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
@@ -275,16 +272,13 @@ fn create_error_response(
         Err(e) => {
             error!(error = %e, "failed to build error response");
             // Return minimal fallback response - this should never fail
-            Response::new(http_body::Full::from("Internal server error".as_bytes()))
+            Response::new(Full::from("Internal server error".as_bytes()))
         }
     }
 }
 
 fn create_response(status: StatusCode, data: Vec<u8>) -> Response<Full<axum::body::Bytes>> {
-    match Response::builder()
-        .status(status)
-        .body(http_body::Full::from(data))
-    {
+    match Response::builder().status(status).body(Full::from(data)) {
         Ok(mut resp) => {
             resp.headers_mut()
                 .insert(CONTENT_TYPE, HeaderValue::from_static(JSON_API_TYPE));
@@ -295,12 +289,12 @@ fn create_response(status: StatusCode, data: Vec<u8>) -> Response<Full<axum::bod
             // Return a minimal error response
             match Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(http_body::Full::from("Failed to build response".as_bytes()))
+                .body(Full::from("Failed to build response".as_bytes()))
             {
                 Ok(resp) => resp,
                 Err(_) => {
                     // Last resort fallback - this should never fail
-                    Response::new(http_body::Full::from("Internal server error".as_bytes()))
+                    Response::new(Full::from("Internal server error".as_bytes()))
                 }
             }
         }

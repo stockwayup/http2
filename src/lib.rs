@@ -10,3 +10,4 @@ pub mod observability;
 pub mod responses;
 pub mod routes;
 pub mod signals;
+pub mod types;
