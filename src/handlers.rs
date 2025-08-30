@@ -192,7 +192,7 @@ pub async fn proxy(
             span.record("http.response.status_code", code.as_u16() as i64);
             span.record("nats.response.size", response.payload.len() as i64);
 
-            info!(status = code.as_u16(), "NATS response received");
+            debug!(status = code.as_u16(), "NATS response received");
 
             create_response(code, response.payload.to_vec()).into_response()
         }

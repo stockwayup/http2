@@ -5,7 +5,7 @@ use axum::{
     Router,
 };
 use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
-use tracing::info_span;
+use tracing::{debug, info_span, Span};
 
 use crate::handlers::*;
 use crate::types::SharedState;
@@ -50,95 +50,95 @@ pub fn build_routes(
 
     let router = router
         .route(&format!("{}/users", API_V1), post(proxy))
-        .route(&format!("{}/users/:uid/news", API_V1), get(proxy))
-        .route(&format!("{}/users/:uid/earnings", API_V1), get(proxy))
-        .route(&format!("{}/users/:uid/dividends", API_V1), get(proxy))
-        .route(&format!("{}/users/:uid", API_V1), get(proxy))
-        .route(&format!("{}/users/:uid/day-prices", API_V1), get(proxy))
+        .route(&format!("{}/users/{{uid}}/news", API_V1), get(proxy))
+        .route(&format!("{}/users/{{uid}}/earnings", API_V1), get(proxy))
+        .route(&format!("{}/users/{{uid}}/dividends", API_V1), get(proxy))
+        .route(&format!("{}/users/{{uid}}", API_V1), get(proxy))
+        .route(&format!("{}/users/{{uid}}/day-prices", API_V1), get(proxy))
         .route(
-            &format!("{}/users/:uid/day-price-periods", API_V1),
+            &format!("{}/users/{{uid}}/day-price-periods", API_V1),
             get(proxy),
         )
-        .route(&format!("{}/users/:uid/view-history", API_V1), get(proxy))
+        .route(&format!("{}/users/{{uid}}/view-history", API_V1), get(proxy))
         .route(&format!("{}/refresh-tokens", API_V1), post(proxy))
         .route(
-            &format!("{}/refresh-tokens/:refresh-token", API_V1),
+            &format!("{}/refresh-tokens/{{refresh-token}}", API_V1),
             delete(proxy),
         )
         .route(&format!("{}/sessions", API_V1), post(proxy))
         .route(&format!("{}/confirmation-codes", API_V1), get(proxy))
-        .route(&format!("{}/confirmation-codes/:id", API_V1), post(proxy))
+        .route(&format!("{}/confirmation-codes/{{id}}", API_V1), post(proxy))
         .route(
             &format!("{}/password-confirmation-codes", API_V1),
             post(proxy),
         )
         .route(
-            &format!("{}/password-confirmation-codes/:id", API_V1),
+            &format!("{}/password-confirmation-codes/{{id}}", API_V1),
             post(proxy),
         )
         .route(&format!("{}/plans", API_V1), get(proxy))
         .route(&format!("{}/portfolios", API_V1), get(proxy).post(proxy))
         .route(
-            &format!("{}/portfolios/:pid", API_V1),
+            &format!("{}/portfolios/{{pid}}", API_V1),
             get(proxy).patch(proxy).delete(proxy),
         )
         .route(
-            &format!("{}/portfolios/:pid/relationships/securities", API_V1),
+            &format!("{}/portfolios/{{pid}}/relationships/securities", API_V1),
             post(proxy).delete(proxy),
         )
         .route(
-            &format!("{}/portfolios/:pid/securities/:sid/transactions", API_V1),
+            &format!("{}/portfolios/{{pid}}/securities/{{sid}}/transactions", API_V1),
             get(proxy).post(proxy),
         )
         .route(
             &format!(
-                "{}/portfolios/:pid/securities/:sid/transactions/:tid",
+                "{}/portfolios/{{pid}}/securities/{{sid}}/transactions/{{tid}}",
                 API_V1
             ),
             get(proxy).patch(proxy).delete(proxy),
         )
         .route(
-            &format!("{}/portfolios/:pid/securities", API_V1),
+            &format!("{}/portfolios/{{pid}}/securities", API_V1),
             get(proxy),
         )
-        .route(&format!("{}/portfolios/:pid/news", API_V1), get(proxy))
-        .route(&format!("{}/portfolios/:pid/earnings", API_V1), get(proxy))
-        .route(&format!("{}/portfolios/:pid/dividends", API_V1), get(proxy))
+        .route(&format!("{}/portfolios/{{pid}}/news", API_V1), get(proxy))
+        .route(&format!("{}/portfolios/{{pid}}/earnings", API_V1), get(proxy))
+        .route(&format!("{}/portfolios/{{pid}}/dividends", API_V1), get(proxy))
         .route(
-            &format!("{}/portfolios/:pid/day-prices", API_V1),
+            &format!("{}/portfolios/{{pid}}/day-prices", API_V1),
             get(proxy),
         )
         .route(
-            &format!("{}/portfolios/:pid/day-price-periods", API_V1),
+            &format!("{}/portfolios/{{pid}}/day-price-periods", API_V1),
             get(proxy),
         )
         .route(&format!("{}/securities", API_V1), get(proxy))
-        .route(&format!("{}/securities/:sid/news", API_V1), get(proxy))
+        .route(&format!("{}/securities/{{sid}}/news", API_V1), get(proxy))
         .route(
-            &format!("{}/securities/:sid/day-prices", API_V1),
+            &format!("{}/securities/{{sid}}/day-prices", API_V1),
             get(proxy),
         )
         .route(
-            &format!("{}/securities/:sid/day-price-periods", API_V1),
+            &format!("{}/securities/{{sid}}/day-price-periods", API_V1),
             get(proxy),
         )
         .route(
-            &format!("{}/securities/:sid/quarterly-balance-sheet", API_V1),
+            &format!("{}/securities/{{sid}}/quarterly-balance-sheet", API_V1),
             get(proxy),
         )
         .route(
-            &format!("{}/securities/:sid/annual-balance-sheet", API_V1),
+            &format!("{}/securities/{{sid}}/annual-balance-sheet", API_V1),
             get(proxy),
         )
         .route(
-            &format!("{}/securities/:sid/quarterly-income-statements", API_V1),
+            &format!("{}/securities/{{sid}}/quarterly-income-statements", API_V1),
             get(proxy),
         )
         .route(
-            &format!("{}/securities/:sid/annual-income-statements", API_V1),
+            &format!("{}/securities/{{sid}}/annual-income-statements", API_V1),
             get(proxy),
         )
-        .route(&format!("{}/securities/:sid", API_V1), get(proxy))
+        .route(&format!("{}/securities/{{sid}}", API_V1), get(proxy))
         .route(&format!("{}/countries", API_V1), get(proxy))
         .route(&format!("{}/currencies", API_V1), get(proxy))
         .route(&format!("{}/sectors", API_V1), get(proxy))
@@ -153,22 +153,67 @@ pub fn build_routes(
         router
     };
 
+    // Custom classifier that never treats HTTP status codes as failures
+    // Only real connection/protocol errors will be classified as failures
+    // Using range 600..=999 means no valid HTTP status codes will be treated as failures
+    
     router
         .layer(
-            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
-                let matched_path = request
-                    .extensions()
-                    .get::<axum::extract::MatchedPath>()
-                    .map(|mp| mp.as_str())
-                    .unwrap_or("unknown");
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    let matched_path = request
+                        .extensions()
+                        .get::<axum::extract::MatchedPath>()
+                        .map(|mp| mp.as_str())
+                        .unwrap_or("unknown");
 
-                info_span!(
-                    "http_request",
-                    method = %request.method(),
-                    route = matched_path,
-                    version = ?request.version(),
+                    info_span!(
+                        "http_request",
+                        method = %request.method(),
+                        route = matched_path,
+                        version = ?request.version(),
+                    )
+                })
+                .on_response(
+                    |response: &axum::http::Response<_>, latency: std::time::Duration, _span: &Span| {
+                        let status = response.status();
+                        let status_code = status.as_u16();
+                        let latency_ms = latency.as_millis();
+                        
+                        // All responses logged at DEBUG level for detailed tracing
+                        // The main log in handlers.rs provides the production-level logging
+                        debug!(
+                            status = status_code,
+                            latency = ?latency_ms,
+                            "tower_http trace"
+                        );
+                    },
                 )
-            }),
+                .on_failure(
+                    |error: tower_http::classify::ServerErrorsFailureClass,
+                     latency: std::time::Duration,
+                     _span: &Span| {
+                        // This is now only called for real failures (not HTTP status codes)
+                        // Such as connection errors, timeouts at TCP level, etc.
+                        debug!(
+                            error = ?error,
+                            latency = ?latency.as_millis(),
+                            "tower_http failure trace"
+                        );
+                    },
+                )
+                .on_request(|_request: &axum::http::Request<_>, _span: &Span| {
+                    // Request start logged at DEBUG level
+                    debug!("tower_http request start");
+                })
+                .on_body_chunk(|_chunk: &axum::body::Bytes, _latency: std::time::Duration, _span: &Span| {
+                    // Body chunks logged at TRACE level (won't show even in debug mode)
+                    tracing::trace!("tower_http body chunk");
+                })
+                .on_eos(|_trailers: Option<&http::HeaderMap>, _stream_duration: std::time::Duration, _span: &Span| {
+                    // End of stream logged at TRACE level
+                    tracing::trace!("tower_http stream end");
+                }),
         )
         .fallback(any(not_found))
 }

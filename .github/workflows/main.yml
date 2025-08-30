@@ -56,6 +56,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
       - name: Login to Docker Hub
         if: ${{ env.DO_PUSH == 'true' }}
         uses: docker/login-action@v3
@@ -74,7 +78,9 @@ jobs:
           context: .
           file: Dockerfile
           push: false
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.1.3
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
 
       - name: Build and push
@@ -85,6 +91,8 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-0.1.3
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-from: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest
           cache-to: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/swup:http2-latest,mode=max
